@@ -1,0 +1,72 @@
+---
+description: dbt SQL Style, Formatting, and CTE Rules adapted from dbt Style Guide
+globs: **/*.sql
+---
+
+# dbt SQL Style Rules
+
+These rules codify the organization's `dbt_style_guide (2).md` standards for every `*.sql` model, macro, snapshot, or seed query. They assume Snowflake as the primary warehouse, but remain warehouse-agnostic for general formatting.
+
+## 1. General Formatting
+
+* **Keywords vs identifiers:** SQL keywords and boolean operators are UPPERCASE; field and function names stay lowercase `snake_case`.
+* **Trailing commas:** Keep commas at the end of each line to avoid editor diffs and align with dbt Cloud + Snowflake UI auto-formatters.
+* **Indentation:** Use four spaces for indentation. When writing predicates, align them with the `where` keyword instead of adding an extra indent.
+* **Line length:** Target ≤80 characters per line. Break long expressions or arrays onto multiple lines.
+* **`as` for aliases:** Always include the `as` keyword when aliasing columns or expressions.
+* **Newlines over cleverness:** Favor additional newlines/comments over compressed logic. Readability > fewer lines.
+
+## 2. CTE Structure
+
+* Declare every `{{ ref() }}` or `{{ source() }}` call inside a descriptive CTE at the top of the file.
+* Each CTE performs a single, logical unit of work. If logic feels duplicated across models, promote it to its own model or macro.
+* Include inline comments for complex or notable logic, especially when mirroring source quirks.
+* Finish with a `final` (or equivalent) CTE and `select * from final` to simplify debugging without editing downstream references.
+* Example scaffold:
+
+```
+with
+
+events as (
+
+    select * from {{ ref('events') }}
+
+),
+
+-- Describe why filtering is necessary
+filtered_events as (
+
+    select *
+    from events
+    where status = 'active'
+
+)
+
+select * from filtered_events
+```
+
+## 3. Query Organization
+
+* Non-aggregate fields precede aggregates/window functions in the `select` list.
+* Push filters and aggregations as early as practical to trim data volume before expensive joins/windowing.
+* When selecting from more than one table, prefix every column with its alias to avoid ambiguity in reviewers or automated lineage tools.
+* For `order by` / `group by`, reference column names (or use dbt-utils helpers) rather than positional ordinals.
+* Prefer `union all` to `union` unless you explicitly need duplicate elimination.
+
+## 4. Join Discipline
+
+* Use `join` (implicit inner join) for equi-joins; reserve `left join` as the default when enforcing dimensional completeness.
+* Avoid `right join`—pick the table you want fully preserved and list it in the `from` clause.
+* Always list the "left" table (the driving table) in the `from` clause, followed by joins ordered by business relevance.
+* Align join predicates beneath the `on` keyword to emphasize join keys and reduce accidental cross-joins.
+
+## 5. dbt-Specific Notes
+
+* **Layer Dependencies:**
+    * `raw_` models may select directly from `sources` defined in `sources.yml`.
+    * `int_` models must use `{{ ref('raw_*') }}` to reference raw layer.
+    * `anl_` models must use `{{ ref('int_*') }}` to reference integration layer.
+    * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
+* **Model Naming:** Follow layer prefixes (`raw_`, `int_`, `anl_`) with double underscore `__` delimiters for party/system/subject area segments.
+* **Snapshots:** Snapshot SQL should mirror these conventions; if duplicating logic across snapshots and models, refactor into macros.
+* **Documentation:** Keep model headers (change log, developer, purpose) in YAML, not inline SQL comments, to centralize documentation.

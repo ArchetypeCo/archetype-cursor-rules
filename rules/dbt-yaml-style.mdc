@@ -1,0 +1,52 @@
+---
+description: dbt YAML documentation and testing standards adapted from dbt Style Guide
+globs: **/*.yml, **/*.yaml
+---
+
+# dbt YAML Style Rules
+
+These rules formalize the YAML authoring guidance from `dbt_style_guide (2).md`. They apply to `schema.yml`, `sources.yml`, snapshot YAML, and any other dbt metadata definitions.
+
+## 1. Formatting Basics
+
+* Use two-space indentation; never mix tabs.
+* Keep lines ≤80 characters. Break long descriptions using folded style (`>`) if needed.
+* Blank lines may separate list items that contain nested dictionaries for readability.
+* Quote strings only when the value needs special characters (e.g., timestamps); otherwise leave them unquoted.
+
+## 2. File Organization
+
+* Every models subdirectory must include a YAML file (`foldername.yml`) that documents and tests every model in that folder.
+* Sources follow the same convention, stored alongside the models that read from them (e.g., `stg/party__system/sources.yml`).
+* Mirror the project directory structure in the YAML layout so navigation between SQL and metadata is trivial.
+
+## 3. Documentation & Testing
+
+* Capture high-level model purpose, change log, and developer context inside the YAML `description` fields instead of SQL comments.
+* Apply at least `unique` + `not_null` tests to each model's primary key column.
+* Prefer explicit `relationships` tests for every foreign key that joins to another model.
+* For snapshots, describe the snapshot strategy, identifiers, and timestamp columns in YAML for quick audits.
+
+## 4. Example Template
+
+```
+version: 2
+
+models:
+  - name: events
+    description: Captures raw application events for downstream modeling.
+    columns:
+      - name: event_id
+        description: Unique identifier emitted by the app.
+        tests:
+          - unique
+          - not_null
+
+      - name: user_id
+        description: Foreign key to dim_users.user_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_users')
+              field: user_id
+```
