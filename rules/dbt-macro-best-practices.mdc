@@ -1,0 +1,364 @@
+---
+description: dbt Macro Best Practices, Naming Conventions, and Reusable Patterns
+globs: **/macros/*.sql
+---
+
+# dbt Macro Best Practices
+
+These rules define when and how to create macros in dbt projects, ensuring consistency, reusability, and maintainability across all transformation logic.
+
+## 1. When to Use Macros vs CTEs vs Models
+
+### Use Macros When:
+* **Reusable transformation logic** appears in 3+ models (DRY principle)
+* **Complex calculations** that need consistent implementation (e.g., SHA2-256 surrogate keys, date calculations)
+* **Warehouse-specific SQL** that needs abstraction (e.g., Snowflake-specific functions)
+* **Common patterns** across multiple models (e.g., soft delete detection, type casting)
+* **Business logic** that should be centralized (e.g., revenue calculations, status mappings)
+
+### Use CTEs When:
+* **Model-specific logic** that won't be reused elsewhere
+* **Single-use transformations** within one model
+* **Readability improvements** for complex queries
+
+### Use Models When:
+* **Reusable datasets** that multiple downstream models depend on
+* **Intermediate transformations** that need to be materialized
+* **Business entities** that represent normalized data
+
+### Decision Tree:
+```
+Is this logic used in 3+ models?
+├─ Yes → Is it a dataset/entity?
+│   ├─ Yes → Create a model
+│   └─ No → Create a macro
+└─ No → Use a CTE in the model
+```
+
+## 2. Macro Naming Conventions
+
+* **Naming Pattern:** `macro_<verb>_<noun>` or `macro_<purpose>`
+    * *Examples:* `macro_generate_surrogate_key`, `macro_calculate_revenue`, `macro_detect_soft_deletes`
+* **Use descriptive verbs:** `generate`, `calculate`, `detect`, `transform`, `cast`, `format`
+* **Avoid abbreviations:** Use full words (`customer` not `cust`, `identifier` not `id` in macro names)
+* **Group related macros:** Prefix with domain when appropriate (e.g., `macro_finance_calculate_tax`)
+* **Test macros:** Prefix with `test_` (e.g., `test_assert_not_null`)
+* **Utility macros:** Prefix with `utils_` for generic helpers (e.g., `utils_cast_to_varchar`)
+
+## 3. Macro Organization & Structure
+
+### File Organization:
+* **One macro per file** for complex macros with documentation
+* **Multiple related macros** in one file when they're tightly coupled (e.g., `macro_generate_key` and `macro_validate_key`)
+* **Group by domain:** Create subdirectories in `macros/` for domain-specific macros:
+    ```
+    macros/
+    ├── finance/
+    │   ├── calculate_revenue.sql
+    │   └── calculate_tax.sql
+    ├── dimensions/
+    │   ├── generate_surrogate_key.sql
+    │   └── detect_scd_type2_changes.sql
+    └── utils/
+        ├── cast_types.sql
+        └── format_dates.sql
+    ```
+
+### Macro Structure Template:
+```sql
+{% macro macro_name(param1, param2='default_value') %}
+
+    {#
+        Purpose: Brief description of what this macro does
+        
+        Parameters:
+            param1 (required): Description of param1
+            param2 (optional): Description of param2, defaults to 'default_value'
+        
+        Returns:
+            Description of return value
+        
+        Example:
+            {{ macro_name('value1', 'value2') }}
+        
+        Notes:
+            Any important implementation details or gotchas
+    #}
+
+    -- Macro implementation here
+    {{ return(result) }}
+
+{% endmacro %}
+```
+
+## 4. Macro Documentation Standards
+
+* **Always include a docstring** using `{# #}` comments at the top of the macro
+* **Document all parameters:** Type, required/optional, default values, description
+* **Include examples:** Show usage in context
+* **Note warehouse-specific behavior:** If macro behaves differently on Snowflake vs other warehouses
+* **Document edge cases:** What happens with NULL values, empty strings, etc.
+* **Version notes:** If macro replaces an older version, note the migration path
+
+### Documentation Template:
+```sql
+{#
+    Macro: macro_generate_surrogate_key
+    
+    Purpose:
+        Generates a SHA2-256 hash surrogate key from one or more natural key columns.
+        Used for creating consistent primary keys in dimensional models.
+    
+    Parameters:
+        - natural_key_columns (list, required): List of column names to hash
+        - delimiter (string, optional): Delimiter for concatenation, defaults to '||'
+    
+    Returns:
+        SQL expression: SHA2_256(CONCAT_WS(delimiter, col1, col2, ...))
+    
+    Example:
+        select
+            {{ macro_generate_surrogate_key(['customer_id', 'source_system_id']) }} as customer_key,
+            customer_id,
+            customer_name
+        from {{ ref('int__customer') }}
+    
+    Notes:
+        - Always includes natural keys alongside surrogate key for traceability
+        - Handles NULL values by converting to empty string before hashing
+        - Uses VARCHAR data type for compatibility
+    #}
+```
+
+## 5. Parameter Conventions
+
+* **Use descriptive parameter names:** `natural_key_columns` not `cols`, `delimiter` not `delim`
+* **Provide default values** for optional parameters
+* **Validate inputs** when possible (check for empty lists, NULL values)
+* **Use lists for multiple values:** `['col1', 'col2']` instead of comma-separated strings
+* **Document parameter types:** string, list, boolean, number
+* **Order parameters:** Required first, then optional with defaults
+
+### Parameter Examples:
+```sql
+-- Good: Descriptive names, defaults, clear types
+{% macro macro_calculate_revenue(
+    quantity_column,
+    price_column,
+    discount_column=0,
+    currency='USD'
+) %}
+
+-- Bad: Abbreviations, unclear types, no defaults
+{% macro calc_rev(q, p, d, c) %}
+```
+
+## 6. Common Macro Patterns
+
+### Surrogate Key Generation:
+```sql
+{% macro macro_generate_surrogate_key(natural_key_columns, delimiter='||') %}
+    sha2_256(
+        concat_ws(
+            '{{ delimiter }}',
+            {% for col in natural_key_columns %}
+                coalesce(cast({{ col }} as varchar), ''){% if not loop.last %},{% endif %}
+            {% endfor %}
+        )
+    )::varchar
+{% endmacro %}
+```
+
+### Soft Delete Detection:
+```sql
+{% macro macro_detect_soft_deletes(
+    source_table,
+    deleted_flag_column='is_deleted',
+    deleted_timestamp_column='deleted_at'
+) %}
+    select
+        *,
+        case
+            when {{ deleted_flag_column }} = true
+                or {{ deleted_timestamp_column }} is not null
+            then true
+            else false
+        end as is_logically_deleted
+    from {{ source_table }}
+{% endmacro %}
+```
+
+### Type Casting Utilities:
+```sql
+{% macro macro_cast_to_varchar(column_name) %}
+    cast({{ column_name }} as varchar)
+{% endmacro %}
+
+{% macro macro_cast_to_number(column_name, precision=38, scale=0) %}
+    cast({{ column_name }} as number({{ precision }}, {{ scale }}))
+{% endmacro %}
+```
+
+### Date/Time Utilities:
+```sql
+{% macro macro_convert_to_utc(timestamp_column, source_timezone='America/New_York') %}
+    convert_timezone('{{ source_timezone }}', 'UTC', {{ timestamp_column }})
+{% endmacro %}
+
+{% macro macro_get_date_spine(start_date, end_date) %}
+    select
+        dateadd(day, seq4(), '{{ start_date }}') as date_day
+    from table(generator(rowcount => datediff('day', '{{ start_date }}', '{{ end_date }}')))
+{% endmacro %}
+```
+
+### Business Logic Macros:
+```sql
+{% macro macro_calculate_order_total(
+    quantity_column,
+    unit_price_column,
+    discount_percent=0,
+    tax_rate=0
+) %}
+    (
+        ({{ quantity_column }} * {{ unit_price_column }}) *
+        (1 - {{ discount_percent }} / 100.0) *
+        (1 + {{ tax_rate }} / 100.0)
+    )::number(18, 2)
+{% endmacro %}
+```
+
+## 7. Error Handling & Validation
+
+* **Validate inputs:** Check for NULL, empty lists, invalid values
+* **Provide helpful error messages:** Use `exceptions.raise_compiler_error()` for clear errors
+* **Handle edge cases:** NULL values, empty strings, type mismatches
+* **Fail fast:** Validate early in macro execution
+
+### Error Handling Example:
+```sql
+{% macro macro_generate_surrogate_key(natural_key_columns) %}
+    {% if natural_key_columns is none or natural_key_columns | length == 0 %}
+        {{ exceptions.raise_compiler_error(
+            "macro_generate_surrogate_key requires at least one column in natural_key_columns list"
+        ) }}
+    {% endif %}
+    
+    sha2_256(
+        concat_ws(
+            '||',
+            {% for col in natural_key_columns %}
+                coalesce(cast({{ col }} as varchar), ''){% if not loop.last %},{% endif %}
+            {% endfor %}
+        )
+    )::varchar
+{% endmacro %}
+```
+
+## 8. Testing Macros
+
+* **Create test macros** for reusable test logic
+* **Prefix test macros** with `test_` (e.g., `test_assert_not_null`, `test_assert_unique`)
+* **Document test macros** with expected behavior and failure conditions
+* **Use dbt-utils test macros** when available instead of reinventing
+
+### Test Macro Example:
+```sql
+{% macro test_assert_revenue_positive(model, column_name) %}
+    select *
+    from {{ model }}
+    where {{ column_name }} < 0
+{% endmacro %}
+```
+
+## 9. dbt-utils Package Usage
+
+* **Leverage dbt-utils** for common patterns before creating custom macros:
+    * `dbt_utils.surrogate_key()` - Surrogate key generation
+    * `dbt_utils.date_spine()` - Date dimension generation
+    * `dbt_utils.star()` - Select all columns with prefix
+    * `dbt_utils.get_relations_by_pattern()` - Find models by pattern
+* **Extend dbt-utils macros** when you need custom behavior
+* **Document when custom macros replace dbt-utils** and why
+
+## 10. Macro Performance Considerations
+
+* **Avoid nested macro calls** when possible (can impact query compilation time)
+* **Use macros for SQL generation**, not for data processing (macros run at compile time)
+* **Keep macro logic simple:** Complex Jinja logic can slow compilation
+* **Cache macro results** when appropriate (e.g., date spines, lookup tables)
+
+## 11. Versioning & Migration
+
+* **Version macros** when making breaking changes: `macro_generate_key_v2()`
+* **Deprecate old macros** with clear migration instructions in docstring
+* **Maintain backward compatibility** when possible
+* **Document migration path** in macro comments
+
+### Versioning Example:
+```sql
+{#
+    DEPRECATED: Use macro_generate_surrogate_key_v2() instead
+    
+    Migration:
+        Replace: {{ macro_generate_surrogate_key('col1', 'col2') }}
+        With: {{ macro_generate_surrogate_key_v2(['col1', 'col2']) }}
+    
+    Removal Date: 2025-06-01
+#}
+{% macro macro_generate_surrogate_key(...) %}
+    -- Old implementation
+{% endmacro %}
+```
+
+## 12. Macro Usage in Models
+
+* **Import macros** at the top of model files if using custom macros
+* **Use descriptive variable names** when storing macro results
+* **Document macro usage** in model comments when behavior is non-obvious
+* **Test macro outputs** in model tests
+
+### Model Usage Example:
+```sql
+-- Generate surrogate key using macro
+select
+    {{ macro_generate_surrogate_key(['customer_id', 'source_system_id']) }} as customer_key,
+    customer_id,
+    source_system_id,
+    customer_name,
+    created_at,
+    updated_at
+from {{ ref('int__customer') }}
+```
+
+## 13. Best Practices Summary
+
+### Do:
+✅ Create macros for reusable logic (3+ usages)
+✅ Use descriptive, verb-based names
+✅ Document all parameters and return values
+✅ Validate inputs and handle edge cases
+✅ Leverage dbt-utils when available
+✅ Keep macro logic simple and focused
+✅ Test macros with various inputs
+
+### Don't:
+❌ Create macros for single-use logic (use CTEs instead)
+❌ Use abbreviations in macro names
+❌ Skip documentation
+❌ Create macros that duplicate dbt-utils functionality
+❌ Make macros too complex (consider breaking into multiple macros)
+❌ Use macros for data processing (they run at compile time)
+
+## 14. Macro Review Checklist
+
+Before committing a new macro, verify:
+- [ ] Macro is used in 3+ models (or has clear reuse potential)
+- [ ] Name follows `macro_<verb>_<noun>` pattern
+- [ ] All parameters are documented with types and defaults
+- [ ] Example usage is provided in docstring
+- [ ] Edge cases are handled (NULL, empty strings, etc.)
+- [ ] Error messages are clear and helpful
+- [ ] Macro doesn't duplicate dbt-utils functionality
+- [ ] Performance implications are considered
+- [ ] Tests exist for the macro (if applicable)

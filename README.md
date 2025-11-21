@@ -41,6 +41,16 @@ YAML documentation and testing standards:
 - Documentation & testing patterns
 - Example templates
 
+### `rules/dbt-macro-best-practices.mdc`
+Macro development and usage standards:
+- When to use macros vs CTEs vs models
+- Macro naming conventions and organization
+- Documentation standards and templates
+- Common macro patterns (surrogate keys, soft deletes, utilities)
+- Error handling and validation
+- dbt-utils package usage
+- Performance considerations
+
 ## Key Naming Conventions
 
 ### dbt Model Naming

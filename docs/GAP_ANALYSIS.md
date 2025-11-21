@@ -2,39 +2,67 @@
 
 ## Executive Summary
 
-This document identifies critical gaps and inconsistencies between the current cursor rules and industry best practices, with a focus on **naming convention enforcement**. Key conflicts exist between the Snowflake modeling rules (singular nouns) and the organization's style guide (plural facts/dimensions, layer prefixes).
+This document identifies critical gaps and inconsistencies between the current cursor rules and industry best practices, with a focus on **naming convention enforcement**. Key conflicts exist between:
+- Snowflake modeling rules (singular nouns for raw/int, plural for analytics)
+- Organization's style guide (plural facts/dimensions, layer prefixes)
+- **dbt Labs official style guide** ([source](https://docs.getdbt.com/best-practices/how-we-style/1-how-we-style-our-dbt-models)) which recommends **plural models** and **`_id` primary keys** (not `_key`)
+
+**NEW FINDINGS:** Comparison with dbt Labs official style guide reveals significant conflicts in primary key naming (`_id` vs `_key`), timestamp naming (`_at` vs `_datetime`), and model pluralization approach.
 
 ---
 
 ## 🔴 CRITICAL NAMING CONVENTION CONFLICTS
 
-### 1. Table/Model Naming: Singular vs Plural
+### 1. Table/Model Naming: Singular vs Plural ⚠️ **CONFLICT WITH dbt LABS**
 
 **Current State:**
-- **Snowflake rules (line 17-19):** Enforces **singular nouns** (`customer`, `sales_order`)
-- **Style guide (line 114-116):** 
+- **Snowflake rules (line 17-26):** Layer-specific:
+  - Raw/Int: **singular nouns** (`customer`, `sales_order`)
+  - Analytics: **plural nouns** (`fact_orders`, `dim_customers`)
+- **Organization style guide:** 
   - ODS objects: **singular** (`salesforce__account`)
   - DW/BI objects: **plural** (`fact_orders`, `dim_customers`)
+- **dbt Labs style guide:** **ALL models should be pluralized** (`customers`, `orders`, `products`)
 
-**Gap:** These are **directly contradictory**. The Snowflake rules will enforce singular for ALL tables, but the style guide requires plural for facts/dimensions.
+**Gap:** **CONFLICT** - dbt Labs recommends plural for ALL models, but our rules use singular for raw/int layers.
 
-**Recommendation:** 
-- **ODS/Staging:** Singular (`customer`, `sales_order`)
-- **DW Facts:** Plural (`fact_orders`, `fact_sales`)
-- **DW Dimensions:** Plural (`dim_customers`, `dim_products`)
-- **BI Marts:** Plural (business terminology)
+**dbt Labs Guidance:**
+- Models should be pluralized: `customers`, `orders`, `products` (not `customer`, `order`, `product`)
+- This applies to ALL models regardless of layer
 
-**Action Required:** Update Snowflake rules to specify layer-specific naming.
+**Current Implementation:**
+- ✅ Raw/Int: Singular (preserves source system naming, aligns with relational model theory)
+- ✅ Analytics: Plural (aligns with dbt Labs and dimensional modeling)
+
+**Decision Required:**
+- **Option A:** Keep layer-specific approach (singular raw/int, plural analytics) - **Current approach**
+- **Option B:** Switch all layers to plural (aligns with dbt Labs completely)
+- **Option C:** Document the deviation from dbt Labs with rationale (dimensional modeling best practice)
+
+**Recommendation:** Keep current layer-specific approach but document the deviation from dbt Labs with clear rationale (relational model theory for normalized layers, dimensional modeling conventions for analytics).
 
 ---
 
-### 2. Primary Key Naming: `_id` vs `_key`
+### 2. Primary Key Naming: `_id` vs `_key` ⚠️ **CRITICAL CONFLICT WITH dbt LABS**
 
 **Current State:**
-- **Snowflake rules (line 20-21):** `<singular_table_name>_key` with SHA2-256 hash ✅ (recently updated)
-- **Style guide (line 122-123):** `<object>_key` with SHA2-256 hash ✅
+- **Snowflake rules (line 35-37):** `<singular_table_name>_key` with SHA2-256 hash
+- **Organization style guide:** `<object>_key` with SHA2-256 hash ✅
+- **dbt Labs style guide:** `<object>_id` (e.g., `account_id`, `customer_id`) - **NO mention of SHA2-256 hashing**
 
-**Status:** ✅ **ALIGNED** - Both now specify `_key` with SHA2-256 hash.
+**Gap:** **MAJOR CONFLICT** - dbt Labs official style guide uses `_id` suffix, not `_key`. Our rules use `_key` with SHA2-256 hashing for surrogate keys, which is a dimensional modeling best practice but conflicts with dbt Labs convention.
+
+**dbt Labs Guidance:**
+- Primary key should be named `<object>_id` (e.g., `account_id`, `customer_id`)
+- Keys should be **string data types**
+- Makes it easier to know what `id` is being referenced in downstream joined models
+
+**Decision Required:**
+- **Option A:** Keep `_key` with SHA2-256 (dimensional modeling best practice, better for data warehousing)
+- **Option B:** Switch to `_id` (aligns with dbt Labs, more common in application databases)
+- **Option C:** Layer-specific - use `_id` for raw/int layers, `_key` for analytics layer (hybrid approach)
+
+**Recommendation:** Keep `_key` for analytics layer (dimensional modeling), but consider `_id` for raw/int layers to align with dbt Labs conventions.
 
 ---
 
@@ -73,17 +101,35 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ## 🟡 MISSING NAMING CONVENTIONS
 
-### 5. Column Naming Patterns Not Enforced
+### 5. Column Naming Patterns Not Enforced ⚠️ **CONFLICTS WITH dbt LABS**
 
-**Missing from Rules:**
-- **Timestamp naming:** `_created_datetime` / `_updated_datetime` vs `_created_at` / `_updated_at` (style guide allows both)
-- **Date vs Timestamp:** `_on` for dates, `_at` for timestamps (style guide line 127-129)
-- **Boolean prefixes:** `is_` or `has_` (style guide line 132)
-- **Currency fields:** Decimal vs `_in_cents` suffix (style guide line 135)
-- **Lookup table pattern:** `<object>_KEY`, `<object>_CODE`, `<object>_DESCRIPTION` (style guide line 140-143)
-- **Field ordering:** Identifiers → Attributes → Activity dates → Audit fields (style guide line 125)
+**Current State:**
+- **Our rules (line 41):** Timestamps use `_created_datetime` / `_updated_datetime`, dates use `_created_on` / `_updated_on`
+- **dbt Labs style guide:** 
+  - Timestamps: `<event>_at` (e.g., `created_at`, `updated_at`) - **UTC by default**
+  - Dates: `<event>_date` (e.g., `created_date`, `updated_date`)
+  - Events should be **past tense** (`created`, `updated`, `deleted`)
 
-**Action Required:** Add comprehensive column naming standards section.
+**Gap:** **MAJOR CONFLICT** - Our timestamp naming (`_datetime`) conflicts with dbt Labs (`_at`). Our date naming (`_on`) conflicts with dbt Labs (`_date`).
+
+**dbt Labs Guidance:**
+- Timestamp columns: `<event>_at` (e.g., `created_at`, `updated_at`) in UTC
+- Date columns: `<event>_date` (e.g., `created_date`, `updated_date`)
+- If different timezone, indicate with suffix: `created_at_pt`
+- Events should be past tense: `created`, `updated`, `deleted`
+
+**Other Patterns (Aligned):**
+- ✅ **Booleans:** `is_` or `has_` prefix (both agree)
+- ✅ **Currency:** Decimal format (`19.99`), `_in_cents` suffix if non-decimal (both agree)
+- ✅ **Lookup tables:** Pattern with `_key`, `_code`/`_name`, `_description` (our rules)
+- ⚠️ **Field ordering:** 
+  - **Our rules:** Identifiers → Attributes → Activity dates → Audit fields
+  - **dbt Labs:** ids → strings → numerics → booleans → dates → timestamps (more granular)
+
+**Action Required:** 
+1. **Decide on timestamp/date naming:** `_at`/`_date` (dbt Labs) vs `_datetime`/`_on` (current)
+2. **Update field ordering** to match dbt Labs pattern or document deviation
+3. Add comprehensive column naming standards section
 
 ---
 
@@ -120,9 +166,22 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-## 🔵 MISSING BEST PRACTICES
+## 🔵 MISSING BEST PRACTICES FROM dbt LABS
 
-### 8. Model Materialization Strategy
+### 8. Model Versioning Pattern ⚠️ **NEW FROM dbt LABS**
+
+**Missing:**
+- **dbt Labs guidance:** Model versions should use `_v1`, `_v2`, etc. suffix for consistency
+  - Examples: `customers_v1`, `customers_v2`
+  - Used when creating new versions of existing models
+
+**Current State:** No versioning pattern defined in our rules.
+
+**Action Required:** Add model versioning standards section.
+
+---
+
+### 9. Model Materialization Strategy
 
 **Missing:**
 - When to use `view` vs `table` vs `incremental`
@@ -134,7 +193,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 9. dbt Model Configuration Patterns
+### 10. dbt Model Configuration Patterns
 
 **Missing:**
 - In-model `config()` block formatting (style guide line 67-77)
@@ -146,7 +205,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 10. Snapshot Patterns
+### 11. Snapshot Patterns
 
 **Missing:**
 - Snapshot naming (`_HIST` suffix? - style guide line 85)
@@ -158,7 +217,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 11. Soft Delete Patterns
+### 12. Soft Delete Patterns
 
 **Missing:**
 - Soft delete detection in STG/ODS (style guide line 91)
@@ -169,7 +228,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 12. Source Definition Patterns
+### 13. Source Definition Patterns
 
 **Missing:**
 - Source naming conventions (`party__system` pattern)
@@ -180,7 +239,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 13. Testing Patterns Beyond Basics
+### 14. Testing Patterns Beyond Basics
 
 **Missing:**
 - Test organization by layer
@@ -193,19 +252,29 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ---
 
-### 14. Macro Usage Patterns
+### 15. Macro Usage Patterns ✅ **COMPLETED**
 
-**Missing:**
-- When to create macros vs CTEs
-- Macro naming conventions
-- Reusable transformation patterns
-- dbt-utils package usage
+**Status:** ✅ **RESOLVED** - Comprehensive macro best practices document created.
 
-**Action Required:** Add macro standards section.
+**New Rules File:** `rules/dbt-macro-best-practices.mdc`
+
+**Coverage:**
+- ✅ When to use macros vs CTEs vs models (decision tree)
+- ✅ Macro naming conventions (`macro_<verb>_<noun>` pattern)
+- ✅ Macro organization and file structure
+- ✅ Documentation standards with templates
+- ✅ Parameter conventions and validation
+- ✅ Common macro patterns (surrogate keys, soft deletes, type casting, date utilities)
+- ✅ Error handling and input validation
+- ✅ Testing macros
+- ✅ dbt-utils package usage guidance
+- ✅ Performance considerations
+- ✅ Versioning and migration patterns
+- ✅ Macro review checklist
 
 ---
 
-### 15. Documentation Standards
+### 16. Documentation Standards
 
 **Missing:**
 - Model description requirements (purpose, change log, developer - style guide line 54-61)
@@ -221,19 +290,21 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ### High Priority
 
-1. **Table naming:** Singular for ODS, plural for DW/BI? Or singular everywhere?
-2. **Model prefixes:** Enforce `stg_`, `ods_`, `dw_`, `bi_` prefixes? With `__` delimiter?
-3. **Fact/Dimension prefixes:** Require `fact_` and `dim_` prefixes for DW layer?
-4. **Architecture:** Medallion vs custom layers - which takes precedence?
-5. **FK naming:** Always match PK name (`customer_key` → `customer_key`)?
+1. **Table naming:** Singular for raw/int, plural for analytics? Or plural everywhere (per dbt Labs)?
+2. **Primary key naming:** Use `_id` (dbt Labs) or `_key` with SHA2-256 (dimensional modeling)? Layer-specific?
+3. **Timestamp naming:** Use `_at` (dbt Labs) or `_datetime` (current)? Date: `_date` or `_on`?
+4. **Model prefixes:** Enforce `raw_`, `int_`, `anl_` prefixes? With `__` delimiter?
+5. **Fact/Dimension prefixes:** Require `fact_` and `dim_` prefixes for analytics layer?
+6. **FK naming:** Always match PK name (`customer_key` → `customer_key`)?
+7. **Field ordering:** Use dbt Labs pattern (ids → strings → numerics → booleans → dates → timestamps) or current (identifiers → attributes → audit)?
 
 ### Medium Priority
 
-6. **Timestamp naming:** Standardize on `_datetime` vs `_at` vs `_on`?
-7. **Field ordering:** Enforce identifier → attribute → audit ordering?
-8. **Natural keys:** Always include alongside surrogate keys?
-9. **Materialization:** Default strategies by layer?
-10. **Tags:** Enforce tagging strategy for model grouping?
+8. **Model versioning:** Add `_v1`, `_v2` suffix pattern for model versions?
+9. **Natural keys:** Always include alongside surrogate keys?
+10. **Materialization:** Default strategies by layer?
+11. **Tags:** Enforce tagging strategy for model grouping?
+12. **Keys data type:** Enforce string data types for keys (per dbt Labs)?
 
 ### Low Priority
 
@@ -255,15 +326,18 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ### Short Term (Missing Standards)
 
-5. **Add column naming patterns** - Timestamps, booleans, currency, lookups
-6. **Add materialization guidance** - When to use view/table/incremental
-7. **Add snapshot patterns** - Naming, structure, strategies
-8. **Add soft delete patterns** - Detection and handling
+5. **Resolve timestamp/date naming conflict** - Choose `_at`/`_date` (dbt Labs) or `_datetime`/`_on` (current)
+6. **Resolve primary key naming** - Document decision on `_id` vs `_key` with rationale
+7. **Add column naming patterns** - Timestamps, booleans, currency, lookups (aligned with chosen standard)
+8. **Add model versioning pattern** - `_v1`, `_v2` suffix for model versions
+9. **Add materialization guidance** - When to use view/table/incremental
+10. **Add snapshot patterns** - Naming, structure, strategies
+11. **Add soft delete patterns** - Detection and handling
 
 ### Medium Term (Enhancements)
 
 9. **Expand testing patterns** - Beyond basic unique/not_null
-10. **Add macro standards** - When and how to use macros
+10. ✅ **Add macro standards** - When and how to use macros **COMPLETED**
 11. **Enhance documentation** - Model descriptions, change logs
 12. **Add source patterns** - Naming, freshness, metadata
 
@@ -282,7 +356,7 @@ Use this to verify rules cover all naming conventions:
 - [ ] Constraint naming (PK, FK, unique)
 - [ ] Source naming (`party__system`)
 - [ ] Snapshot naming (`_HIST` suffix?)
-- [ ] Macro naming
+- [x] Macro naming ✅ **COMPLETED**
 - [ ] Test naming
 - [ ] Tag naming conventions
 
@@ -290,9 +364,51 @@ Use this to verify rules cover all naming conventions:
 
 ## 🔗 REFERENCES
 
+- **dbt Labs Official Style Guide:** [How we style our dbt models](https://docs.getdbt.com/best-practices/how-we-style/1-how-we-style-our-dbt-models)
 - Organization Style Guide: `dbt_style_guide (2).md`
 - Current Rules:
   - `rules/dbt-datamodelling-snowflake.mdc`
   - `rules/dbt-sql-style.mdc`
   - `rules/dbt-yaml-style.mdc`
+
+---
+
+## 📝 SUMMARY OF dbt LABS CONFLICTS
+
+### Critical Conflicts Requiring Decision:
+
+1. **Primary Key Naming:** 
+   - **dbt Labs:** `<object>_id` (e.g., `account_id`)
+   - **Our Rules:** `<singular_table_name>_key` with SHA2-256 hash
+   - **Impact:** High - affects all models
+
+2. **Model Pluralization:**
+   - **dbt Labs:** ALL models plural (`customers`, `orders`)
+   - **Our Rules:** Singular for raw/int, plural for analytics
+   - **Impact:** Medium - affects naming consistency
+
+3. **Timestamp Naming:**
+   - **dbt Labs:** `<event>_at` (e.g., `created_at`)
+   - **Our Rules:** `<object>_created_datetime`
+   - **Impact:** High - affects all timestamp columns
+
+4. **Date Naming:**
+   - **dbt Labs:** `<event>_date` (e.g., `created_date`)
+   - **Our Rules:** `<object>_created_on`
+   - **Impact:** Medium - affects all date columns
+
+5. **Field Ordering:**
+   - **dbt Labs:** ids → strings → numerics → booleans → dates → timestamps
+   - **Our Rules:** Identifiers → Attributes → Activity dates → Audit fields
+   - **Impact:** Low - affects readability but not functionality
+
+### Aligned Patterns (No Changes Needed):
+
+- ✅ Snake_case for all names
+- ✅ Underscores, not dots in model names
+- ✅ No abbreviations
+- ✅ Boolean prefixes (`is_`, `has_`)
+- ✅ Currency decimal format
+- ✅ Business terminology over source terminology
+- ✅ Avoid reserved words
 
