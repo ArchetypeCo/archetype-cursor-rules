@@ -1,0 +1,129 @@
+---
+description: CI/CD Pipeline Standards for Azure DevOps and GitHub Actions
+globs: **/*.yml, **/*.yaml, **/.github/workflows/*, **/azure-pipelines.yml
+---
+
+# CI/CD Pipeline Standards
+
+These rules govern the creation and maintenance of CI/CD pipelines, focusing on Azure DevOps and GitHub Actions. The goal is to ensure reliable, secure, and efficient software delivery.
+
+## 1. General Pipeline Principles
+
+*   **Definition in Code:** All pipelines must be defined in YAML and stored in the repository alongside the code.
+*   **One Pipeline, One Responsibility:** Avoid monolithic pipelines. Split build, test, and deploy stages logically.
+*   **Idempotency:** Pipelines should be re-runnable without side effects.
+*   **Fail Fast:** Run the fastest checks (linting, unit tests) first. Fail the pipeline immediately if they fail.
+*   **Artifacts:** Build once, deploy many. Generate a build artifact (e.g., wheel, docker image, zip) in the build stage and promote it through environments (dev -> stage -> prod).
+
+## 2. Azure DevOps Pipelines
+
+### Structure
+*   Use **Templates** for reusable steps (e.g., setup-python, cache-dependencies).
+*   Define **Stages** clearly: `Build`, `Test`, `Deploy_Dev`, `Deploy_Prod`.
+
+### Best Practices
+*   **Triggers:**
+    *   `main` / `master` branch commits trigger CI/CD.
+    *   Pull Requests (PRs) trigger CI (Build & Test) only.
+*   **Variables:**
+    *   Use **Variable Groups** for shared configuration.
+    *   **NEVER** commit secrets to YAML. Use Azure Key Vault integration.
+*   **Caching:** Use `Cache@2` task for pip/npm dependencies to speed up builds.
+
+### Example Template (`azure-pipelines.yml`)
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.10'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+    
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      displayName: 'Install Dependencies'
+
+    - script: |
+        pytest tests/
+      displayName: 'Run Tests'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(System.DefaultWorkingDirectory)/dist'
+        ArtifactName: 'drop'
+```
+
+## 3. GitHub Actions
+
+### Structure
+*   Use separate workflow files for distinct purposes (e.g., `ci.yml`, `deploy-prod.yml`).
+*   Leverage **Composite Actions** for complex, reusable logic.
+
+### Best Practices
+*   **Concurrency:** Use `concurrency` groups to cancel redundant in-progress runs (e.g., pushing commits to a PR).
+*   **Security:** Use `secrets.*` context for sensitive data.
+*   **Permissions:** Set minimal `permissions:` for the `GITHUB_TOKEN`.
+
+### Example Template (`.github/workflows/ci.yml`)
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        
+    - name: Run Tests
+      run: |
+        pytest
+```
+
+## 4. Python-Specific CI/CD
+
+*   **Linting:** Always include a linting step (`flake8`, `black`, or `ruff`).
+*   **Formatting:** Enforce code formatting (`black --check`) in CI.
+*   **Security Scanning:** Run `bandit` or similar tools to check for common Python security issues.
+
+## 5. Terraform CI/CD
+
+*   **Plan on PR:** Run `terraform plan` on Pull Requests and post the plan as a comment.
+*   **Apply on Merge:** Run `terraform apply` only on the `main` branch after approval.
+*   **Credentials:** Authenticate using OIDC (OpenID Connect) where possible (Azure Workload Identity / AWS OIDC Provider) to avoid long-lived keys.
+
+## 6. Checklist for New Pipelines
+
+- [ ] Is the trigger configured correctly (CI vs CD)?
+- [ ] Are secrets managed securely (Key Vault / Secrets)?
+- [ ] Is caching enabled for dependencies?
+- [ ] Are build artifacts separated from source code?
+- [ ] Is there a linting/formatting check?

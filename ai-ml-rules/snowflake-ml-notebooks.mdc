@@ -1,0 +1,97 @@
+---
+description: Snowflake Machine Learning (ML), Notebooks, and AI Rules
+globs: **/*.ipynb, **/*.py, **/ml/**/*.sql
+---
+
+# Snowflake ML & Notebooks Rules
+
+These rules govern the development of Machine Learning workflows, Notebooks, and AI applications within Snowflake, leveraging Snowpark ML, Container Runtime, and Snowflake Notebooks.
+
+## 1. Snowflake Notebooks Development
+
+### Setup & Configuration
+* **Prerequisites:** Ensure notebooks are enabled and the role has required privileges.
+* **Runtime Selection:**
+    * **Warehouse Runtime:** Best for SQL-heavy, data engineering, and standard ML workflows using pre-installed packages (Snowpark, pandas).
+        * *Version 1.0:* Python 3.9, Streamlit 1.39.1
+        * *Version 2.0:* Python 3.10, Streamlit 1.39.1
+    * **Container Runtime:** Required for custom libraries, GPU acceleration, and distributed training (e.g., Ray, PyTorch, TensorFlow).
+* **Naming Convention:** Use descriptive names with consistent casing (Snowflake preserves exact casing).
+    * *Format:* `nb_<domain>_<purpose>` (e.g., `nb_sales_forecasting`, `nb_customer_churn_analysis`)
+
+### Code Structure in Notebooks
+* **Modular Cells:** Keep SQL and Python cells focused on single logical steps.
+* **Dependencies:**
+    * For Warehouse Runtime: Import standard packages.
+    * For Container Runtime: Define dependencies in environment files or install dynamically if needed (avoid dynamic installs for production).
+* **Interoperability:** Use SQL cells for data extraction/loading and Python cells for complex logic/training.
+    * Reference SQL query results in Python using the dataframe variable (usually `df` or user-defined).
+    * Reference Python variables in SQL using Jinja-like syntax: `{{ variable_name }}`.
+
+### Versioning
+* **Git Integration:** Always sync notebooks with a Git repository for version control.
+* **Live Version:** Ensure a "Live" version is set before scheduling execution via `EXECUTE NOTEBOOK`.
+    * *SQL Command:* `ALTER NOTEBOOK <name> ADD LIVE VERSION FROM LAST;`
+
+## 2. Snowpark ML Modeling
+
+### Data Preparation
+* **Snowflake Datasets:** Use immutable, versioned snapshots for training data.
+* **Feature Engineering:**
+    * Use `snowflake.ml.modeling` for scalable preprocessing (e.g., `OneHotEncoder`, `StandardScaler`).
+    * Push down transformations to Snowflake warehouses to avoid data movement.
+* **Snowflake Feature Store:**
+    * Define features once and reuse across models.
+    * Support automated incremental refresh for consistency.
+
+### Model Training
+* **Distributed Training:** Use Snowpark ML `Distributor` for training on large datasets across multiple nodes.
+* **Hyperparameter Tuning:** Use `GridSearchCV` or `RandomizedSearchCV` from `snowflake.ml.modeling` to run tuning jobs in parallel.
+* **Experiments:** Log all training runs using Snowflake Experiments to track metrics, parameters, and artifacts.
+
+## 3. Model Management & Deployment
+
+### Model Registry
+* **Centralized Registry:** Log all models (Snowpark ML, external) to the Snowflake Model Registry.
+* **Model Types:**
+    * **Built-in:** Standard libraries (scikit-learn, XGBoost, LightGBM, Pytorch, TensorFlow).
+    * **Custom:** Use `CustomModel` class for arbitrary Python logic or unsupported libraries.
+* **Versioning:** Use semantic versioning for registered models (e.g., `v1.0`, `v1.1`).
+
+### Model Serving
+* **Warehouse Inference:** Use `model.predict()` for batch inference directly in SQL or Python.
+* **Snowpark Container Services (SPCS):** Deploy models to SPCS for real-time or high-performance inference requirements.
+* **SQL API:** Expose models as SQL functions for business analysts.
+
+## 4. Operationalization (ML Ops)
+
+### ML Pipelines
+* **ML Jobs:** Use Snowflake ML Jobs to automate training and inference pipelines.
+* **External Dispatch:** Trigger jobs from external IDEs (VS Code, PyCharm) to run on Snowflake infrastructure.
+* **Lineage:** Leverage ML Lineage to trace artifacts from source data -> features -> models -> predictions.
+
+### Observability
+* **Monitoring:** Track model performance metrics (accuracy, drift) over time.
+* **Explainability:** Compute Shapley values to understand feature importance and model decisions.
+
+## 5. Best Practices Summary
+
+### Do:
+✅ Use Container Runtime for custom deep learning/GPU workloads.
+✅ Push data processing to Snowflake (ELT) before pulling into Python.
+✅ Log every experiment run for reproducibility.
+✅ Use the Feature Store to prevent train-serving skew.
+✅ Sync notebooks with Git for collaboration and versioning.
+
+### Don't:
+❌ Pull massive datasets into memory (pandas) without filtering/aggregating.
+❌ Install pip packages dynamically in production notebooks (build custom images or use Anaconda channel).
+❌ Hardcode credentials (use Secrets Management).
+❌ Leave unused notebooks running (clean up resources).
+
+## 6. Naming Conventions
+
+* **Notebooks:** `nb_<domain>_<use_case>`
+* **Models:** `model_<domain>_<algorithm>_<version>` (e.g., `model_sales_xgboost_v1`)
+* **Features:** `feat_<entity>_<attribute>` (e.g., `feat_customer_avg_spend_30d`)
+* **Experiments:** `exp_<domain>_<hypothesis>` (e.g., `exp_churn_price_sensitivity`)

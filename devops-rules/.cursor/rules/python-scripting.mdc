@@ -1,0 +1,127 @@
+---
+description: Python Scripting and Automation Best Practices
+globs: **/*.py, **/scripts/*.py
+---
+
+# Python Scripting Standards
+
+These rules guide the development of Python scripts used for automation, data processing, and infrastructure tasks. They prioritize maintainability, robustness, and clarity over complex software engineering patterns.
+
+## 1. Script vs. Application
+
+*   **Scripts:** Single-file or small multi-file tools meant for specific tasks (e.g., "upload to S3", "process daily logs").
+*   **Applications:** Long-running services or complex systems.
+*   *Rule:* Even simple scripts should follow basic engineering standards (logging, error handling).
+
+## 2. Project Structure
+
+For script collections:
+```
+scripts/
+├── requirements.txt      # Dependencies for scripts
+├── utils.py              # Shared helper functions
+├── data_processor.py     # Specific script
+└── infrastructure/
+    └── setup_env.py
+```
+
+## 3. Core Principles
+
+### A. Boilerplate
+Always include a `main` guard to prevent execution on import.
+
+```python
+def main():
+    # Logic here
+    pass
+
+if __name__ == "__main__":
+    main()
+```
+
+### B. Argument Parsing
+*   **NEVER** hardcode inputs (paths, dates, IDs).
+*   Use `argparse` for CLI arguments. It provides help messages (`-h`) automatically.
+
+```python
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Upload files to Azure Blob Storage")
+    parser.add_argument("--source", required=True, help="Local source directory")
+    parser.add_argument("--container", required=True, help="Target container name")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate without uploading")
+    return parser.parse_args()
+```
+
+### C. Logging > Print
+*   Use the `logging` module instead of `print()`.
+*   It allows filtering (INFO vs DEBUG), timestamps, and redirection to files.
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Usage
+logger.info("Starting upload process...")
+logger.error("Failed to connect to storage account.")
+```
+
+### D. Error Handling
+*   Wrap "dangerous" operations (network calls, file I/O) in `try/except` blocks.
+*   Exit with a non-zero status code on failure so CI/CD pipelines fail correctly.
+
+```python
+import sys
+
+try:
+    upload_file(path)
+except Exception as e:
+    logger.error(f"Upload failed: {e}")
+    sys.exit(1)
+```
+
+## 4. Cloud SDK Usage (Boto3 / Azure SDK)
+
+### Azure SDK for Python
+*   Use `DefaultAzureCredential` for authentication. It handles local dev (CLI login) and production (Managed Identity) seamlessly.
+
+```python
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
+
+credential = DefaultAzureCredential()
+client = BlobServiceClient(account_url, credential=credential)
+```
+
+### Boto3 (AWS)
+*   Use `boto3.Session` or environment variables. Avoid hardcoding keys.
+
+## 5. Type Hinting & Linting
+
+*   Use type hints for function arguments, even in scripts. It helps IDEs (and Cursor) understand your code.
+*   Run `ruff` or `flake8` to catch syntax errors before running the script.
+
+```python
+def process_data(input_path: str, retries: int = 3) -> bool:
+    ...
+```
+
+## 6. Dependencies
+
+*   Use a virtual environment (`venv`).
+*   Generate a `requirements.txt` specifically for your scripts.
+*   Avoid pinning exact versions unless necessary; ranges are usually safer for scripts (`pandas>=1.5`).
+
+## 7. Checklist for New Scripts
+
+- [ ] Is there a `if __name__ == "__main__":` block?
+- [ ] Are inputs handled via `argparse`?
+- [ ] Is `logging` used instead of `print`?
+- [ ] Is there basic error handling (`try/except`)?
+- [ ] Are credentials handled via environment variables or Identity classes?

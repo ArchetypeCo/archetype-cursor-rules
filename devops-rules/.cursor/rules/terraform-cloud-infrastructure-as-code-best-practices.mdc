@@ -1,0 +1,123 @@
+---
+description: Terraform and Infrastructure as Code (IaC) Best Practices for AWS and Azure
+globs: **/*.tf, **/*.tfvars, **/*.hcl
+---
+
+# Terraform & IaC Best Practices
+
+These rules govern the development of Infrastructure as Code (IaC) using Terraform, focusing on Azure and AWS environments.
+
+## 1. Key Principles
+
+*   **Declarative State:** Define *what* you want, not *how* to get there.
+*   **Immutability:** Prefer replacing resources over modifying them in-place.
+*   **Modularity:** Break large configurations into reusable modules.
+*   **Remote State:** ALWAYS use a remote backend (Azure Blob Storage / AWS S3 + DynamoDB) with locking enabled.
+
+## 2. Project Structure
+
+Standard directory layout for a cloud project:
+
+```
+infrastructure/
+├── modules/                 # Local reusable modules
+│   ├── azure-networking/
+│   └── aws-storage/
+├── envs/                    # Environment-specific instantiations
+│   ├── dev/
+│   │   ├── main.tf          # Module calls
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   ├── provider.tf
+│   │   └── terraform.tfvars
+│   └── prod/
+└── scripts/                 # Bootstrap/helper scripts
+```
+
+## 3. Naming Conventions
+
+### General
+*   Use **snake_case** for all Terraform resource names (`azure_resource_group.main`, NOT `AzureResourceGroup`).
+*   Use **hyphen-case** for cloud resource names (actual Azure/AWS names), as many services don't support underscores.
+
+### Azure Naming (Resource Names)
+Format: `org-project-env-region-resource`
+*   Example: `acme-data-prod-eastus-rg`
+*   **Storage Accounts:** `st<project><env>` (must be lowercase, alphanumeric, no hyphens).
+
+### AWS Naming
+Format: `org-project-env-resource`
+*   Example: `acme-data-prod-vpc`
+
+## 4. Best Practices
+
+### A. State Management
+*   **Never** commit `.tfstate` files to Git.
+*   Use a separate state file per environment (`dev`, `prod`) to isolate blast radius.
+
+### B. Variable Handling
+*   Always define `type` and `description` for variables.
+*   Use `terraform.tfvars` for non-sensitive values.
+*   Pass sensitive values (secrets) via environment variables (`TF_VAR_db_password`) or Key Vault lookups.
+
+```hcl
+variable "instance_count" {
+  description = "Number of instances to deploy"
+  type        = number
+  default     = 2
+}
+```
+
+### C. Versions
+*   **Lock Provider Versions:** Avoid "it works on my machine" by pinning provider versions.
+
+```hcl
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+  required_version = ">= 1.5.0"
+}
+```
+
+### D. Resource Tagging
+*   **Mandatory Tags:** Apply a standard set of tags to ALL resources for cost tracking.
+    *   `Environment` (dev/prod)
+    *   `Project`
+    *   `Owner`
+    *   `ManagedBy` (Terraform)
+
+## 5. Security
+
+*   **Least Privilege:** The CI/CD service principal/role should only have permissions to the specific subscription/account it manages.
+*   **Private Endpoints:** Prefer Private Links/Endpoints over public IP addresses for databases and storage.
+*   **Encryption:** Ensure `encrypted = true` is set for all storage/disk resources.
+
+## 6. Terraform Workflow
+
+1.  `terraform fmt -recursive` (Format code)
+2.  `terraform validate` (Check syntax)
+3.  `terraform plan -out=tfplan` (Preview changes)
+4.  `terraform apply tfplan` (Apply changes)
+
+## 7. Quality Gates (Terraform)
+
+Cursor must require these checks before accepting Terraform changes:
+
+1. `terraform fmt -recursive` — refuse to proceed if formatting modifies files that are not committed.
+2. `terraform validate` — block merge until validation passes for every affected workspace/module.
+3. `terraform plan -var-file="<env>.tfvars"` — include the plan output (or summary) in the PR for review; failures must be resolved before approval.
+4. CI pipelines must run `terraform plan` on pull requests and only allow `terraform apply` on protected branches after human approval.
+
+Document any intentional skips (e.g., unreachable cloud backends) directly in the PR description so reviewers know why a gate was bypassed.
+
+## 7. Checklist for New Code
+
+- [ ] Is the backend configured for remote state?
+- [ ] Are provider versions pinned?
+- [ ] Do all resources have standard tags?
+- [ ] Are sensitive values excluded from code?
+- [ ] Did you run `terraform fmt`?

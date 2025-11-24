@@ -27,7 +27,29 @@ These rules formalize the YAML authoring guidance from `dbt_style_guide (2).md`.
 * Prefer explicit `relationships` tests for every foreign key that joins to another model.
 * For snapshots, describe the snapshot strategy, identifiers, and timestamp columns in YAML for quick audits.
 
-## 4. Example Template
+## 4. Unit Testing
+
+* **Use dbt Unit Tests** (dbt Core 1.8+) to validate complex SQL logic (e.g., regex parsing, complicated case statements) with mock data.
+* **Test Logic, Not Data:** Unit tests should verify that *if* the input is X, the output *must* be Y.
+* **Structure:** Define input rows and expected output rows directly in the YAML.
+* **Scope:** Prioritize unit tests for `int` layer models where business logic and normalization occur.
+
+```yaml
+unit_tests:
+  - name: test_is_valid_email_logic
+    model: int_customers
+    given:
+      - input: source_users
+        rows:
+          - {email: "valid@example.com"}
+          - {email: "invalid-email"}
+    expect:
+      rows:
+        - {email: "valid@example.com", is_valid_email: true}
+        - {email: "invalid-email", is_valid_email: false}
+```
+
+## 5. Example Template
 
 ```
 version: 2

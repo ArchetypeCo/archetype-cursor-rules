@@ -297,6 +297,7 @@ This document identifies critical gaps and inconsistencies between the current c
 5. **Fact/Dimension prefixes:** Require `fact_` and `dim_` prefixes for analytics layer?
 6. **FK naming:** Always match PK name (`customer_key` → `customer_key`)?
 7. **Field ordering:** Use dbt Labs pattern (ids → strings → numerics → booleans → dates → timestamps) or current (identifiers → attributes → audit)?
+8. **Repository-wide alignment:** Should every rules file (README, architecture, QA, DevOps) reference the same authoritative naming conventions, or can documents intentionally diverge? Document the decision to prevent future drift.
 
 ### Medium Priority
 

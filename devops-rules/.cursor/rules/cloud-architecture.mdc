@@ -1,0 +1,87 @@
+---
+description: Cloud Architecture Standards and Patterns for AWS and Azure
+globs: **/*.tf, **/*.bicep, **/docs/*.md
+---
+
+# Cloud Architecture Standards
+
+These rules define the high-level architectural patterns and principles for cloud solutions on Azure and AWS. They guide decision-making for resource selection, networking, and security.
+
+## 1. General Cloud Principles
+
+*   **Cloud-Native First:** Prefer managed services (PaaS/Serverless) over managing Virtual Machines (IaaS).
+    *   *Azure:* Function Apps, Container Apps, SQL Database
+    *   *AWS:* Lambda, Fargate, RDS
+*   **Stateless Compute:** Treat compute resources as ephemeral. Store state in external managed storage (Blob/S3, SQL, Redis).
+*   **Multi-Region Reliability:** Design critical systems to survive a regional outage (Active-Passive or Active-Active).
+*   **Cost Awareness:** Tag all resources. Use reserved instances/savings plans for predictable workloads.
+
+## 2. Azure Architecture Patterns
+
+### Networking
+*   **Hub-and-Spoke Topology:**
+    *   **Hub VNet:** Central connectivity, Firewall, VPN/ExpressRoute gateway.
+    *   **Spoke VNets:** Application workloads, peered to Hub.
+*   **Private Connectivity:**
+    *   Use **Private Endpoints** for all PaaS services (Storage, SQL, Key Vault).
+    *   Disable public internet access to PaaS services by default.
+
+### Identity & Access
+*   **Managed Identities:** ALWAYS use System or User Assigned Managed Identities for service-to-service authentication. Avoid Service Principals (client secrets) whenever possible.
+*   **RBAC:** Assign permissions at the Resource Group level, not Subscription level. Use built-in roles.
+
+### Storage & Data
+*   **Data Lake:** Use ADLS Gen2 with hierarchical namespace.
+*   **Lifecycle Management:** Enable auto-tiering (Hot -> Cool -> Archive) to optimize costs.
+
+## 3. AWS Architecture Patterns
+
+### Networking
+*   **VPC Design:**
+    *   **Public Subnets:** Load Balancers, NAT Gateways only.
+    *   **Private Subnets:** Application servers, Databases, Lambda functions.
+*   **VPC Endpoints:** Use Gateway Endpoints (S3, DynamoDB) and Interface Endpoints to keep traffic within the AWS network.
+
+### Identity (IAM)
+*   **IAM Roles:** Use Roles for EC2/Lambda execution. Never embed Access Keys in code.
+*   **Least Privilege:** Use granular policies (limiting Actions and Resources), avoiding `AdministratorAccess`.
+
+### Compute
+*   **Serverless:** Prefer Lambda for event-driven tasks.
+*   **Containers:** Use ECS Fargate for long-running services to avoid managing EC2 instances.
+
+## 4. Security Baseline (Cross-Cloud)
+
+1.  **Encryption at Rest:** Enable default encryption keys (Microsoft/AWS managed) for all storage. Use Customer Managed Keys (CMK) only for high-compliance data.
+2.  **Encryption in Transit:** Enforce TLS 1.2+ for all endpoints.
+3.  **Logs:** Enable diagnostic logging for all resources. Send logs to a centralized workspace (Log Analytics / CloudWatch).
+4.  **Public Access:** default rule: **DENY**. Explicitly allow only necessary traffic via NSGs/Security Groups.
+
+## 5. Tagging Strategy
+
+Every resource must have the following tags:
+*   `Environment`: `dev` | `test` | `prod`
+*   `Project`: `<project-name>`
+*   `Owner`: `<team-email>`
+*   `CostCenter`: `<code-or-name>`
+*   `IaC`: `terraform`
+
+## 6. Decision Framework: "Which Service?"
+
+### Compute
+*   **Short-lived / Event-driven?** -> Functions (Azure) / Lambda (AWS)
+*   **API / Web App?** -> App Service (Azure) / Fargate (AWS)
+*   **Long-running Background Job?** -> Container Apps Jobs (Azure) / Batch (AWS)
+
+### Database
+*   **Relational?** -> Azure SQL / AWS RDS
+*   **NoSQL / Document?** -> Cosmos DB / DynamoDB
+*   **Analytical / Warehouse?** -> Snowflake
+
+## 7. Checklist for New Architecture Designs
+
+- [ ] Does the design use managed services vs VMs?
+- [ ] Is public network access disabled for databases/storage?
+- [ ] Are Managed Identities/IAM Roles used for auth?
+- [ ] Is there a clear tagging strategy?
+- [ ] Are logs centralized?
