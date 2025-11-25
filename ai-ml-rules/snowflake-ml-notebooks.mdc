@@ -1,50 +1,92 @@
 ---
 description: Snowflake Machine Learning (ML), Notebooks, and AI Rules
-globs: **/*.ipynb, **/*.py, **/ml/**/*.sql
+alwaysApply: false
 ---
-
 # Snowflake ML & Notebooks Rules
+
+**Owner:** AI/ML Architect
 
 These rules govern the development of Machine Learning workflows, Notebooks, and AI applications within Snowflake, leveraging Snowpark ML, Container Runtime, and Snowflake Notebooks.
 
 ## 1. Snowflake Notebooks Development
 
 ### Setup & Configuration
+
 * **Prerequisites:** Ensure notebooks are enabled and the role has required privileges.
 * **Runtime Selection:**
-    * **Warehouse Runtime:** Best for SQL-heavy, data engineering, and standard ML workflows using pre-installed packages (Snowpark, pandas).
-        * *Version 1.0:* Python 3.9, Streamlit 1.39.1
-        * *Version 2.0:* Python 3.10, Streamlit 1.39.1
-    * **Container Runtime:** Required for custom libraries, GPU acceleration, and distributed training (e.g., Ray, PyTorch, TensorFlow).
+  * **Warehouse Runtime:** Best for SQL-heavy, data engineering, and standard ML workflows using pre-installed packages (Snowpark, pandas).
+    * *Version 1.0:* Python 3.9, Streamlit 1.39.1
+    * *Version 2.0:* Python 3.10, Streamlit 1.39.1
+  * **Container Runtime:** Required for custom libraries, GPU acceleration, and distributed training (e.g., Ray, PyTorch, TensorFlow).
 * **Naming Convention:** Use descriptive names with consistent casing (Snowflake preserves exact casing).
-    * *Format:* `nb_<domain>_<purpose>` (e.g., `nb_sales_forecasting`, `nb_customer_churn_analysis`)
+  * *Format:* `nb_<domain>_<purpose>` (e.g., `nb_sales_forecasting`, `nb_customer_churn_analysis`)
 
-### Code Structure in Notebooks
-* **Modular Cells:** Keep SQL and Python cells focused on single logical steps.
+### Notebook Structure & Documentation
+
+* **Header Markdown Cell:** Capture objective/hypothesis, data sources & freshness, owner, and run date.
+* **Sectioning:** Use level-two/three headings for phases such as `## Load Data`, `## Feature Engineering`, `## Findings`.
+* **Execution Order:** Keep cells linear; run `Run All` before sharing to guarantee deterministic outputs.
+* **Reusable Helpers:** Define plotting/util helper functions near the top so cells stay focused and modular.
+* **Markdown Narration:** Explain every transformation/decision (data filters, imputation choices, metrics) adjacent to the code cell performing it.
+
+### Code Structure & Interop
+
+* **Modular Cells:** Keep SQL and Python cells focused on single logical steps; avoid giant “do-everything” cells.
 * **Dependencies:**
-    * For Warehouse Runtime: Import standard packages.
-    * For Container Runtime: Define dependencies in environment files or install dynamically if needed (avoid dynamic installs for production).
-* **Interoperability:** Use SQL cells for data extraction/loading and Python cells for complex logic/training.
-    * Reference SQL query results in Python using the dataframe variable (usually `df` or user-defined).
-    * Reference Python variables in SQL using Jinja-like syntax: `{{ variable_name }}`.
+  * Warehouse runtime → rely on pre-installed Snowpark, pandas, numpy.
+  * Container runtime → manage dependencies via `environment.yml`/`requirements.txt` checked into Git; remove `%pip install` from production notebooks.
+* **Interoperability:**
+  * Use SQL cells for ingestion/staging and Python cells for transformation/modeling.
+  * Reference SQL results through Snowpark/Pandas DataFrames (`df = session.sql(...).to_pandas()`).
+  * Surface Python scalar values in SQL via templating (`select {{ python_var }}`) sparingly and only for parameters.
 
-### Versioning
-* **Git Integration:** Always sync notebooks with a Git repository for version control.
-* **Live Version:** Ensure a "Live" version is set before scheduling execution via `EXECUTE NOTEBOOK`.
-    * *SQL Command:* `ALTER NOTEBOOK <name> ADD LIVE VERSION FROM LAST;`
+### Data Access & Manipulation
+
+* Prefer Snowpark DataFrames (`session.table("RAW.SALESFORCE.ACCOUNT")`) so processing executes inside Snowflake; avoid exporting large datasets.
+* When pandas is required, constrain row counts via `limit()` or filters before `.to_pandas()`.
+* Use method chaining for clarity (`df.filter(...).group_by(...).agg(...)`), and favor vectorized ops over loops.
+* Document each data source inline (e.g., “Source: RAW.SALESFORCE.ACCOUNT, refreshed daily via Fivetran”).
+
+### Visualization Standards
+
+* Use matplotlib/seaborn (Container Runtime) or Snowpark-compatible plotting libs for Warehouse Runtime.
+* Every chart must include a descriptive title, labeled axes with units, and a legend when multiple series appear.
+* Default to color-blind–safe palettes (`seaborn.color_palette("colorblind")`) and encapsulate repeated charts in helper functions.
+
+### Data Quality & Validation
+
+* Begin with profiling (`df.describe()`, Snowflake `PROFILE` results) and call out anomalies.
+* Explicitly handle nulls (drop vs impute) and record rationale in markdown prior to code.
+* Cast columns to expected types (`col("order_date").cast("date")`) and use assertions/`pytest`-style checks in dev notebooks.
+* Wrap external I/O (cloud storage writes, REST calls) in `try/except` blocks with actionable error messages.
+
+### Performance & Deterministic Execution
+
+* Push heavy transforms down to Snowflake; only bring data client-side for final visualizations or lightweight calcs.
+* Use `cache_result()` only when reusing expensive queries multiple times in the same session.
+* For large datasets, switch to Snowpark-only notebooks or ML Jobs rather than loading into pandas.
+* Re-run `Run All` prior to publishing and pin a **Live Version** (`ALTER NOTEBOOK <name> ADD LIVE VERSION FROM LAST;`) for scheduled executions.
+
+### Deliverables
+
+* Close every notebook with a `## Findings` section detailing conclusions, decisions, and next steps.
+* Reference created Snowflake artifacts (tables, views, dashboards) by fully-qualified names.
+* Export final deliverables (PDF/HTML) from Snowsight and archive them in the team’s documentation space using the same naming convention as the notebook.
 
 ## 2. Snowpark ML Modeling
 
 ### Data Preparation
+
 * **Snowflake Datasets:** Use immutable, versioned snapshots for training data.
 * **Feature Engineering:**
-    * Use `snowflake.ml.modeling` for scalable preprocessing (e.g., `OneHotEncoder`, `StandardScaler`).
-    * Push down transformations to Snowflake warehouses to avoid data movement.
+  * Use `snowflake.ml.modeling` for scalable preprocessing (e.g., `OneHotEncoder`, `StandardScaler`).
+  * Push down transformations to Snowflake warehouses to avoid data movement.
 * **Snowflake Feature Store:**
-    * Define features once and reuse across models.
-    * Support automated incremental refresh for consistency.
+  * Define features once and reuse across models.
+  * Support automated incremental refresh for consistency.
 
 ### Model Training
+
 * **Distributed Training:** Use Snowpark ML `Distributor` for training on large datasets across multiple nodes.
 * **Hyperparameter Tuning:** Use `GridSearchCV` or `RandomizedSearchCV` from `snowflake.ml.modeling` to run tuning jobs in parallel.
 * **Experiments:** Log all training runs using Snowflake Experiments to track metrics, parameters, and artifacts.
@@ -52,13 +94,15 @@ These rules govern the development of Machine Learning workflows, Notebooks, and
 ## 3. Model Management & Deployment
 
 ### Model Registry
+
 * **Centralized Registry:** Log all models (Snowpark ML, external) to the Snowflake Model Registry.
 * **Model Types:**
-    * **Built-in:** Standard libraries (scikit-learn, XGBoost, LightGBM, Pytorch, TensorFlow).
-    * **Custom:** Use `CustomModel` class for arbitrary Python logic or unsupported libraries.
+  * **Built-in:** Standard libraries (scikit-learn, XGBoost, LightGBM, Pytorch, TensorFlow).
+  * **Custom:** Use `CustomModel` class for arbitrary Python logic or unsupported libraries.
 * **Versioning:** Use semantic versioning for registered models (e.g., `v1.0`, `v1.1`).
 
 ### Model Serving
+
 * **Warehouse Inference:** Use `model.predict()` for batch inference directly in SQL or Python.
 * **Snowpark Container Services (SPCS):** Deploy models to SPCS for real-time or high-performance inference requirements.
 * **SQL API:** Expose models as SQL functions for business analysts.
@@ -66,24 +110,28 @@ These rules govern the development of Machine Learning workflows, Notebooks, and
 ## 4. Operationalization (ML Ops)
 
 ### ML Pipelines
+
 * **ML Jobs:** Use Snowflake ML Jobs to automate training and inference pipelines.
 * **External Dispatch:** Trigger jobs from external IDEs (VS Code, PyCharm) to run on Snowflake infrastructure.
 * **Lineage:** Leverage ML Lineage to trace artifacts from source data -> features -> models -> predictions.
 
 ### Observability
+
 * **Monitoring:** Track model performance metrics (accuracy, drift) over time.
 * **Explainability:** Compute Shapley values to understand feature importance and model decisions.
 
 ## 5. Best Practices Summary
 
-### Do:
+### Do
+
 ✅ Use Container Runtime for custom deep learning/GPU workloads.
 ✅ Push data processing to Snowflake (ELT) before pulling into Python.
 ✅ Log every experiment run for reproducibility.
 ✅ Use the Feature Store to prevent train-serving skew.
 ✅ Sync notebooks with Git for collaboration and versioning.
 
-### Don't:
+### Don't
+
 ❌ Pull massive datasets into memory (pandas) without filtering/aggregating.
 ❌ Install pip packages dynamically in production notebooks (build custom images or use Anaconda channel).
 ❌ Hardcode credentials (use Secrets Management).

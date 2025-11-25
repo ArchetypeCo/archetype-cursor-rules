@@ -5,6 +5,8 @@ globs: **/*.tf, **/*.sql, **/snowflake/*.yml, **/*.bicep
 
 # Snowflake Infrastructure & Account Standards
 
+**Owner:** Cloud Platform Lead
+
 These rules define the foundational architecture and infrastructure standards for Snowflake environments. They focus on **Account Object Management**, **Security Implementation**, and **Infrastructure as Code (IaC)**.
 
 For *logical data modeling* rules (tables, columns, dbt conventions), refer to `dbt-datamodelling-snowflake.mdc`.

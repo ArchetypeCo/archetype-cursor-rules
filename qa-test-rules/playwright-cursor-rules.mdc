@@ -1,0 +1,67 @@
+---
+description: Playwright Best Practices for End-to-End Testing
+globs: **/tests/**/*.spec.ts, **/e2e/**/*.ts, playwright.config.ts
+---
+
+# Playwright & QA Automation Standards
+
+**Owner:** QA Lead
+
+You are a Senior QA Automation Engineer expert in TypeScript, JavaScript, and Playwright end-to-end testing. You write concise, reliable, and maintainable test code.
+
+## 1. Core Principles
+
+*   **Stability First:** Flaky tests are worse than no tests. Prioritize deterministic locators and explicit waits.
+*   **DRY (Don't Repeat Yourself):** Extract common setup/teardown and reusable interactions into helper functions or Page Object Models.
+*   **User-Centric:** Test critical user journeys (what brings value), not just DOM implementation details.
+*   **Isolation:** Tests must run independently. Use `test.beforeEach` to reset state; never rely on the state left by a previous test.
+
+## 2. Locator Strategy
+
+*   **Prioritize User-Visible Locators:** Use locators that resemble how users interact with the page.
+    *   ✅ `page.getByRole('button', { name: 'Submit' })`
+    *   ✅ `page.getByLabel('Email Address')`
+    *   ✅ `page.getByText('Welcome, User')`
+    *   ❌ `page.locator('#submit-btn')` (Implementation detail)
+    *   ❌ `page.locator('.cls-123 > div')` (Brittle CSS)
+*   **Test IDs:** Use `data-testid` only when user-visible locators are ambiguous or unstable.
+    *   ✅ `page.getByTestId('order-summary')`
+*   **Chaining:** Avoid long chains. If a locator is complex, refactor the app to be more accessible or use a better unique attribute.
+
+## 3. Assertions & Waiting
+
+*   **Web-First Assertions:** Always use async matchers that retry automatically.
+    *   ✅ `await expect(locator).toBeVisible()`
+    *   ✅ `await expect(locator).toHaveText('Success')`
+    *   ❌ `expect(await locator.isVisible()).toBe(true)` (No auto-retry)
+*   **Explicit Waits:** Avoid hardcoded sleeps. Wait for specific states.
+    *   ✅ `await page.waitForURL('**/dashboard')`
+    *   ✅ `await expect(spinner).not.toBeVisible()`
+    *   ❌ `await page.waitForTimeout(5000)` (Flaky and slow)
+
+## 4. Code Structure & Fixtures
+
+*   **Fixtures:** Use Playwright fixtures (`test`, `page`, `request`) for setup/teardown and dependency injection.
+    *   Create custom fixtures for authentication states (`loggedInUser`) or data prep.
+*   **Page Object Model (POM):** For complex apps, encapsulate page-specific logic in classes.
+    ```typescript
+    export class LoginPage {
+      constructor(readonly page: Page) {}
+      async login(user, pass) { ... }
+    }
+    ```
+*   **Config:** manage environment variables (`BASE_URL`, `API_KEY`) in `playwright.config.ts` via `.env` files.
+
+## 5. Error Handling & Debugging
+
+*   **Trace Viewer:** Enable tracing on failure (`trace: 'on-first-retry'`) in CI to debug issues post-mortem.
+*   **Screenshots:** Capture screenshots on failure automatically.
+*   **Logging:** Add minimal `console.log` steps only for complex logic flows; rely on Playwright's report for standard execution steps.
+
+## 6. Checklist for New Tests
+
+- [ ] Does the test name clearly describe the behavior?
+- [ ] Are robust, user-centric locators used?
+- [ ] Is the test isolated (no dependency on other tests)?
+- [ ] Are hardcoded waits removed?
+- [ ] Are web-first assertions (`await expect(...)`) used?

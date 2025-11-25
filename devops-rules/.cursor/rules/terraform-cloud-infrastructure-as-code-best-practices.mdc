@@ -5,6 +5,8 @@ globs: **/*.tf, **/*.tfvars, **/*.hcl
 
 # Terraform & IaC Best Practices
 
+**Owner:** Cloud Platform Lead
+
 These rules govern the development of Infrastructure as Code (IaC) using Terraform, focusing on Azure and AWS environments.
 
 ## 1. Key Principles

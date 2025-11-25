@@ -1,9 +1,10 @@
 ---
 description: CI/CD Pipeline Standards for Azure DevOps and GitHub Actions
-globs: **/*.yml, **/*.yaml, **/.github/workflows/*, **/azure-pipelines.yml
+alwaysApply: false
 ---
-
 # CI/CD Pipeline Standards
+
+**Owner:** Cloud Platform Lead
 
 These rules govern the creation and maintenance of CI/CD pipelines, focusing on Azure DevOps and GitHub Actions. The goal is to ensure reliable, secure, and efficient software delivery.
 

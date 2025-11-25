@@ -30,6 +30,7 @@ This document identifies critical gaps and inconsistencies between the current c
 - Models should be pluralized: `customers`, `orders`, `products` (not `customer`, `order`, `product`)
 - This applies to ALL models regardless of layer
 
+
 **Current Implementation:**
 - ✅ Raw/Int: Singular (preserves source system naming, aligns with relational model theory)
 - ✅ Analytics: Plural (aligns with dbt Labs and dimensional modeling)
@@ -39,7 +40,7 @@ This document identifies critical gaps and inconsistencies between the current c
 - **Option B:** Switch all layers to plural (aligns with dbt Labs completely)
 - **Option C:** Document the deviation from dbt Labs with rationale (dimensional modeling best practice)
 
-**Recommendation:** Keep current layer-specific approach but document the deviation from dbt Labs with clear rationale (relational model theory for normalized layers, dimensional modeling conventions for analytics).
+**Decision (Nov 2025):** Keep the layer-specific approach permanently. Raw + Integration layers stay singular to emphasize single-entity rows, while Analytics remains plural (`fact_*/dim_*`) for aggregated/business-friendly datasets. Every rule file must document this deliberate divergence from dbt Labs so future contributors do not “correct” it back to all-plural naming.
 
 ---
 
@@ -62,8 +63,7 @@ This document identifies critical gaps and inconsistencies between the current c
 - **Option B:** Switch to `_id` (aligns with dbt Labs, more common in application databases)
 - **Option C:** Layer-specific - use `_id` for raw/int layers, `_key` for analytics layer (hybrid approach)
 
-**Recommendation:** Keep `_key` for analytics layer (dimensional modeling), but consider `_id` for raw/int layers to align with dbt Labs conventions.
-
+**Decision (Nov 2025):** Standardize on `_key` SHA2-256 surrogate keys in **every layer** (raw, int, anl). When a natural/source column already ends with `_key`, name the surrogate `<entity>_pk` to prevent duplicate column names; foreign keys must mirror whichever pattern the parent table uses. Document this in all rules so analysts understand the Kimball-aligned rationale for deviating from dbt Labs.
 ---
 
 ### 3. Model Prefix Patterns Missing
@@ -82,6 +82,8 @@ This document identifies critical gaps and inconsistencies between the current c
 - `ods_<party>__<source>__<table>` for ODS
 - `<subject_area>__<fact|dim>_<name>` for DW
 - `bi_<team>__<project>__<model>` for BI
+- Decision: map Medallion terminology to the legacy stack for clarity — `raw` = landing, `int` = curated/ODS/integration, `anl` = marts/BI. Every rule file must describe this translation so both vocabularies stay in sync.
+
 
 **Action Required:** Add comprehensive dbt model naming section to Snowflake rules.
 
@@ -95,7 +97,7 @@ This document identifies critical gaps and inconsistencies between the current c
 
 **Gap:** Style guide example uses `customer_id` but rules specify `customer_key`. Need clarity on FK naming when PK is `_key`.
 
-**Action Required:** Clarify FK naming: should be `<referenced_table>_key` to match PK pattern.
+**Action Required:** Clarify FK naming: should be `<referenced_table>_key` to match PK pattern. Decision: foreign keys always mirror the parent’s surrogate (`<entity>_key`), except when the parent had to fall back to `<entity>_pk` because the source already owned `<entity>_key`.
 
 ---
 
@@ -103,8 +105,9 @@ This document identifies critical gaps and inconsistencies between the current c
 
 ### 5. Column Naming Patterns Not Enforced ⚠️ **CONFLICTS WITH dbt LABS**
 
-**Current State:**
-- **Our rules (line 41):** Timestamps use `_created_datetime` / `_updated_datetime`, dates use `_created_on` / `_updated_on`
+**Current State (legacy vs updated):**
+- **Legacy rules (pre-Nov 2025):** Timestamps used `_created_datetime` / `_updated_datetime`, dates used `_created_on` / `_updated_on`
+- **Updated rules:** Now use `<event>_at` and `<event>_date` per dbt Labs guidance
 - **dbt Labs style guide:** 
   - Timestamps: `<event>_at` (e.g., `created_at`, `updated_at`) - **UTC by default**
   - Dates: `<event>_date` (e.g., `created_date`, `updated_date`)
@@ -117,7 +120,8 @@ This document identifies critical gaps and inconsistencies between the current c
 - Date columns: `<event>_date` (e.g., `created_date`, `updated_date`)
 - If different timezone, indicate with suffix: `created_at_pt`
 - Events should be past tense: `created`, `updated`, `deleted`
-
+- Decision: adopt the dbt Labs timestamp/date guidance wholesale and propagate it across README + rule files.
+- 
 **Other Patterns (Aligned):**
 - ✅ **Booleans:** `is_` or `has_` prefix (both agree)
 - ✅ **Currency:** Decimal format (`19.99`), `_in_cents` suffix if non-decimal (both agree)
@@ -125,6 +129,7 @@ This document identifies critical gaps and inconsistencies between the current c
 - ⚠️ **Field ordering:** 
   - **Our rules:** Identifiers → Attributes → Activity dates → Audit fields
   - **dbt Labs:** ids → strings → numerics → booleans → dates → timestamps (more granular)
+ ANSWER: lets follow dbt labs standards, 
 
 **Action Required:** 
 1. **Decide on timestamp/date naming:** `_at`/`_date` (dbt Labs) vs `_datetime`/`_on` (current)
@@ -382,26 +387,30 @@ Use this to verify rules cover all naming conventions:
    - **dbt Labs:** `<object>_id` (e.g., `account_id`)
    - **Our Rules:** `<singular_table_name>_key` with SHA2-256 hash
    - **Impact:** High - affects all models
-
+   - **Status:** Resolved — `_key` enforced across every layer (Nov 2025) with `_pk` fallback only when the source already has `<entity>_key`.
 2. **Model Pluralization:**
    - **dbt Labs:** ALL models plural (`customers`, `orders`)
    - **Our Rules:** Singular for raw/int, plural for analytics
    - **Impact:** Medium - affects naming consistency
+   - **Status:** Resolved — layer-specific approach retained intentionally; rationale documented.
 
 3. **Timestamp Naming:**
    - **dbt Labs:** `<event>_at` (e.g., `created_at`)
    - **Our Rules:** `<object>_created_datetime`
    - **Impact:** High - affects all timestamp columns
+   - **Status:** Resolved — `<event>_at` adopted across README + rule files.
 
 4. **Date Naming:**
    - **dbt Labs:** `<event>_date` (e.g., `created_date`)
-   - **Our Rules:** `<object>_created_on`
+   - **Our Rules:** (legacy) `<object>_created_on`
    - **Impact:** Medium - affects all date columns
+   - **Status:** Resolved — `<event>_date` adopted.
 
 5. **Field Ordering:**
    - **dbt Labs:** ids → strings → numerics → booleans → dates → timestamps
    - **Our Rules:** Identifiers → Attributes → Activity dates → Audit fields
    - **Impact:** Low - affects readability but not functionality
+   - **Status:** Resolved — dbt Labs ordering is now the rulebook standard.
 
 ### Aligned Patterns (No Changes Needed):
 

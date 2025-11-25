@@ -1,9 +1,9 @@
 ---
-description: Comprehensive Snowflake Data Modeling, Architecture, and Governance Rules
-globs: **/*.sql, **/*.yml, **/*.yaml, **/*.dbml
+alwaysApply: true
 ---
-
 # Data Modeling & Snowflake Architecture Rules
+
+**Owner:** Data Engineering Lead
 
 You are an expert Data Architect and Snowflake specialist. You strictly adhere to the principles of *Data Modeling with Snowflake, Second Edition*. Your goal is to create robust, scalable, and cost-effective data models using Dimensional Modeling (Kimball) within a Medallion Architecture, while enforcing strict governance to prevent technical debt.
 
@@ -15,44 +15,46 @@ Adhere to strict naming conventions to ensure consistency and maximize Snowflake
     * *Bad:* `CustomerTable`, `"CustomerTable"`, `CUSTOMER_TABLE`
     * *Good:* `customer_table`
 * **Table Naming by Layer:**
-    * **Raw Layer:** Use **singular nouns** matching source system names. If source names are cryptic (e.g., `F0911`), create views with descriptive names.
-        * *Examples:* `customer`, `sales_order`, `account`
-    * **Integration Layer:** Use **singular nouns** with business terminology. These represent normalized entities.
-        * *Examples:* `customer`, `product`, `sales_order`
-    * **Analytics Layer:** Use **plural nouns** for dimensional model objects. Facts and dimensions follow star schema patterns.
-        * **Facts:** `fact_<business_concept>` (e.g., `fact_orders`, `fact_sales`, `fact_transactions`)
-        * **Dimensions:** `dim_<entity>` (e.g., `dim_customers`, `dim_products`, `dim_dates`)
-        * *Bad:* `customer`, `sales_order`
-        * *Good:* `dim_customers`, `fact_orders`
+  * **Raw Layer:** Use **singular nouns** matching source system names. If source names are cryptic (e.g., `F0911`), create views with descriptive names.
+    * *Examples:* `customer`, `sales_order`, `account`
+  * **Integration Layer:** Use **singular nouns** with business terminology. These represent normalized entities (one-row-per-entity). This satisfies the decision: **single-entity layers stay singular; aggregated/business layers go plural.**
+    * *Examples:* `customer`, `product`, `sales_order`
+  * **Analytics Layer:** Use **plural nouns** for dimensional model objects. Facts and dimensions follow star schema patterns.
+    * **Facts:** `fact_<business_concept>` (e.g., `fact_orders`, `fact_sales`, `fact_transactions`)
+    * **Dimensions:** `dim_<entity>` (e.g., `dim_customers`, `dim_products`, `dim_dates`)
+    * *Bad:* `customer`, `sales_order`
+    * *Good:* `dim_customers`, `fact_orders`
 * **dbt Model Naming Patterns:**
-    * **Raw Layer:** `raw_<party>__<source_system>__<table_name>` (e.g., `raw_acme__salesforce__account`)
-        * Party may be omitted for internal systems: `raw_salesforce__account`
-        * Use double underscore `__` to delimit party/system/table segments
-    * **Integration Layer:** `int_<party>__<source_system>__<entity>` (e.g., `int_acme__salesforce__customer`)
-        * Or subject-area based: `int_<subject_area>__<entity>` (e.g., `int_sales__customer`)
-    * **Analytics Layer:** `anl_<subject_area>__<fact|dim>_<name>` (e.g., `anl_sales__fact_orders`, `anl_sales__dim_customers`)
-        * Subject area may be omitted for enterprise-wide models: `anl__dim_dates`
-* **Primary Key Columns:** Define the primary key column as `<singular_table_name>_key` using a deterministic SHA2-256 hash of the natural key fields stored as `varchar`.
-    * *Example:* `customer_key` = `sha2_256(concat_ws('||', source_customer_id, source_system_id))`.
-    * Always include natural key columns alongside the surrogate key for traceability.
-* **Foreign Key Columns:** Use the exact name of the referenced Primary Key column to facilitate "Natural Joins" and easy identification.
-    * *Example:* If `dim_customers` has `customer_key`, then `fact_orders` should have `customer_key` (not `customer_id` or `cust_key`).
+  * **Raw Layer:** `raw_<party>__<source_system>__<table_name>` (e.g., `raw_acme__salesforce__account`)
+    * Party may be omitted for internal systems: `raw_salesforce__account`
+    * Use double underscore `__` to delimit party/system/table segments
+  * **Integration Layer:** `int_<party>__<source_system>__<entity>` (e.g., `int_acme__salesforce__customer`)
+    * Or subject-area based: `int_<subject_area>__<entity>` (e.g., `int_sales__customer`)
+  * **Analytics Layer:** `anl_<subject_area>__<fact|dim>_<name>` (e.g., `anl_sales__fact_orders`, `anl_sales__dim_customers`)
+    * Subject area may be omitted for enterprise-wide models: `anl__dim_dates`
+* **Primary Key Columns:** Define the primary key column as `<singular_table_name>_key` using a deterministic SHA2-256 hash of the natural key fields stored as `varchar`. This `_key` convention applies to **every layer** (raw, integration, analytics) per enterprise decision.
+  * *Example:* `customer_key` = `sha2_256(concat_ws('||', source_customer_id, source_system_id))`.
+  * Always include natural key columns alongside the surrogate key for traceability.
+  * **Name Collision Exception:** If a source system already contains `<entity>_key`, name the surrogate `<entity>_pk` to avoid ambiguity while maintaining `_key` parity elsewhere.
+* **Foreign Key Columns:** Use the exact name of the referenced primary key column (usually `<entity>_key`) to facilitate natural joins. Only deviate when the upstream PK used `_pk` per the collision rule.
+  * *Example:* If `dim_customers` has `customer_key`, then `fact_orders` must also use `customer_key` (not `customer_id` or `cust_key`).
 * **Column Naming Patterns:**
-    * **Timestamps:** Use `<object>_created_datetime` and `<object>_updated_datetime` for UTC timestamps. For dates, use `<object>_created_on` and `<object>_updated_on`.
-    * **Booleans:** Prefix with `is_` or `has_` (e.g., `is_active`, `is_deleted`, `has_permission`).
-    * **Currency:** Use decimal format (e.g., `19.99`). If stored as cents, suffix with `_in_cents` (e.g., `price_in_cents`).
-    * **Lookup Tables:** Follow pattern `<object>_key`, `<object>_code` or `<object>_name`, `<object>_description`.
-    * **Field Ordering:** Identifiers (keys) → Attributes → Activity dates → Audit fields (timestamps, flags).
+  * **Timestamps:** Use `<event>_at` in UTC (e.g., `created_at`, `updated_at`). If a different timezone is required, suffix with the zone (`processed_at_pt`). Events must use past-tense verbs.
+  * **Dates:** Use `<event>_date` (e.g., `start_date`, `closed_date`).
+  * **Booleans:** Prefix with `is_` or `has_` (e.g., `is_active`, `is_deleted`, `has_permission`).
+  * **Currency:** Use decimal format (e.g., `19.99`). If stored as cents, suffix with `_in_cents` (e.g., `price_in_cents`).
+  * **Lookup Tables:** Follow pattern `<object>_key`, `<object>_code` or `<object>_name`, `<object>_description`.
+  * **Field Ordering:** Follow dbt Labs ordering for readability: **identifiers/keys → strings → numerics → booleans → dates → timestamps → audit/meta columns**.
 * **Constraint Naming:** Explicitly name your constraints to preserve logical context in the physical model:
-    * **PK:** `pk_<table_name>` (e.g., `pk_customer`, `pk_fact_orders`)
-    * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_orders_placed_by_dim_customers`)
-    * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
+  * **PK:** `pk_<table_name>` (e.g., `pk_customer`, `pk_fact_orders`)
+  * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_orders_placed_by_dim_customers`)
+  * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
 * **No Object Suffixes:** Do **not** use suffixes to denote object types (e.g., `_v`, `_t`, `_mv`). The underlying object type may change (e.g., View to Dynamic Table) without breaking downstream dependencies.
 * **Avoid Abbreviations:** Use full descriptive names unless the abbreviation is universally standard (e.g., `usd`, `id`). Ambiguity leads to confusion (e.g., does `cust_ref` mean reference, refund, or refrigeration?).
 
 ## 2. Architectural Layers (Medallion)
 
-Organize the database into three logical layers representing the data lifecycle: **raw**, **int**, and **anl**.
+Organize the database into three logical layers representing the data lifecycle: **raw**, **int**, and **anl**. @jdimmer-arch work on this one please, based in our conversation. Add a drawing here I think so people understand and clearly explain the purpose for each phase.
 
 ### 2.1 Analytics Layer: Business-Friendly Naming Standards
 
@@ -149,28 +151,28 @@ When transforming from integration layer to analytics layer:
 * **Usage Examples:** Provide example queries showing business-friendly column usage.
 
 * **Raw Layer (`raw`):**
-    * Load data **as-is** from source systems with minimal transformation.
-    * Preserve source system structure and naming conventions.
-    * Add metadata columns: `__load_id`, `__load_dts`, `__source_filename`.
-    * **Materialization:** Tables (for Fivetran/ELT) or Views (for cloud storage ingestion).
-    * **dbt Models:** Models in `models/raw/` folder, prefixed with `raw_`.
-    * **Sources:** Models may select from dbt `sources` defined in `sources.yml`.
+  * Load data **as-is** from source systems with minimal transformation.
+  * Preserve source system structure and naming conventions.
+  * Add metadata columns: `__load_id`, `__load_dts`, `__source_filename`.
+  * **Materialization:** Tables (for Fivetran/ELT) or Views (for cloud storage ingestion).
+  * **dbt Models:** Models in `models/raw/` folder, prefixed with `raw_`.
+  * **Sources:** Models may select from dbt `sources` defined in `sources.yml`.
 * **Integration Layer (`int`):**
-    * Data cleansing, conforming, deduplication, and business rule application.
-    * Normalized entities ready for dimensional modeling.
-    * Apply soft deletes: detect deleted records and flag with `is_deleted` boolean.
-    * **Materialization:** Views (default) or Tables (if performance requires).
-    * **dbt Models:** Models in `models/int/` folder, prefixed with `int_`.
-    * **Dependencies:** Must use `{{ ref() }}` to reference `raw` layer models.
+  * Data cleansing, conforming, deduplication, and business rule application.
+  * Normalized entities ready for dimensional modeling.
+  * Apply soft deletes: detect deleted records and flag with `is_deleted` boolean.
+  * **Materialization:** Views (default) or Tables (if performance requires).
+  * **dbt Models:** Models in `models/int/` folder, prefixed with `int_`.
+  * **Dependencies:** Must use `{{ ref() }}` to reference `raw` layer models.
 * **Analytics Layer (`anl`):**
-    * Dimensional models following Kimball star schema methodology.
-    * **Facts:** Immutable, verb-based metrics (e.g., `fact_orders`, `fact_sales`).
-    * **Dimensions:** Mutable, noun-based entities (e.g., `dim_customers`, `dim_products`, `dim_dates`).
-    * Denormalized for query performance and business user simplicity.
-    * **Materialization:** Tables (always) for marts to ensure performance.
-    * **dbt Models:** Models in `models/anl/` folder, prefixed with `anl_`.
-    * **Dependencies:** Must use `{{ ref() }}` to reference `int` layer models.
-    * **Business-Friendly Naming:** See section 2.1 below for detailed guidelines.
+  * Dimensional models following Kimball star schema methodology.
+  * **Facts:** Immutable, verb-based metrics (e.g., `fact_orders`, `fact_sales`).
+  * **Dimensions:** Mutable, noun-based entities (e.g., `dim_customers`, `dim_products`, `dim_dates`).
+  * Denormalized for query performance and business user simplicity.
+  * **Materialization:** Tables (always) for marts to ensure performance.
+  * **dbt Models:** Models in `models/anl/` folder, prefixed with `anl_`.
+  * **Dependencies:** Must use `{{ ref() }}` to reference `int` layer models.
+  * **Business-Friendly Naming:** See section 2.1 below for detailed guidelines.
 
 ## 3. Physical Modeling & Constraints
 
@@ -204,25 +206,25 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
 ## 6. dbt Model Configuration & Materialization
 
 * **Materialization by Layer:**
-    * **Raw:** Tables (for ELT tools) or Views (for file ingestion)
-    * **Integration:** Views (default), Tables (if performance requires)
-    * **Analytics:** Tables (always) for marts
+  * **Raw:** Tables (for ELT tools) or Views (for file ingestion)
+  * **Integration:** Views (default), Tables (if performance requires)
+  * **Analytics:** Tables (always) for marts
 * **In-Model Configuration:** Use `{{ config() }}` block at the top of SQL files:
-    ```sql
-    {{
-      config(
-        materialized = 'table',
-        tags = ['sales', 'daily']
-      )
-    }}
-    ```
+  ```sql
+  {{
+    config(
+      materialized = 'table',
+      tags = ['sales', 'daily']
+    )
+  }}
+  ```
 * **Directory-Level Configuration:** Use `dbt_project.yml` for layer-wide defaults.
 * **Tags:** Apply tags at model level for build grouping (e.g., `tags: ['sales', 'daily']`).
 * **Dependencies:**
-    * `raw_` models may select from `sources`.
-    * `int_` models must use `{{ ref('raw_*') }}`.
-    * `anl_` models must use `{{ ref('int_*') }}`.
-    * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
+  * `raw_` models may select from `sources`.
+  * `int_` models must use `{{ ref('raw_*') }}`.
+  * `anl_` models must use `{{ ref('int_*') }}`.
+  * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
 
 ## 7. Query Implementation Standards
 
@@ -232,15 +234,15 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
 ## 8. Snapshots & Soft Deletes
 
 * **Snapshots:**
-    * Use for Type 2 SCD tracking or audit history.
-    * Naming: `snap_<layer>__<entity>` (e.g., `snap_int__customer`).
-    * Replicate model folder structure in `snapshots/` folder.
-    * Configure to end-date deleted records.
-    * Override snapshot database/schema to match target table location.
+  * Use for Type 2 SCD tracking or audit history.
+  * Naming: `snap_<layer>__<entity>` (e.g., `snap_int__customer`).
+  * Replicate model folder structure in `snapshots/` folder.
+  * Configure to end-date deleted records.
+  * Override snapshot database/schema to match target table location.
 * **Soft Deletes:**
-    * Detect deleted records from source objects in `int` layer.
-    * Apply `is_deleted` boolean flag (set to `true` for deleted records).
-    * Preserve deleted records in `int` and `anl` layers for historical analysis.
+  * Detect deleted records from source objects in `int` layer.
+  * Apply `is_deleted` boolean flag (set to `true` for deleted records).
+  * Preserve deleted records in `int` and `anl` layers for historical analysis.
 
 ## 9. Governance & Documentation (Debt Prevention)
 

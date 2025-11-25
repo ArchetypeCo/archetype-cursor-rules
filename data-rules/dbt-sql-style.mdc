@@ -1,8 +1,6 @@
 ---
-description: dbt SQL Style, Formatting, and CTE Rules adapted from dbt Style Guide
-globs: **/*.sql
+alwaysApply: true
 ---
-
 # dbt SQL Style Rules
 
 These rules codify the organization's `dbt_style_guide (2).md` standards for every `*.sql` model, macro, snapshot, or seed query. They assume Snowflake as the primary warehouse, but remain warehouse-agnostic for general formatting.

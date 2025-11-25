@@ -1,8 +1,6 @@
 ---
-description: dbt Macro Best Practices, Naming Conventions, and Reusable Patterns
-globs: **/macros/*.sql
+alwaysApply: true
 ---
-
 # dbt Macro Best Practices
 
 These rules define when and how to create macros in dbt projects, ensuring consistency, reusability, and maintainability across all transformation logic.

@@ -5,6 +5,8 @@ globs: **/*.py, **/scripts/*.py
 
 # Python Scripting Standards
 
+**Owner:** Cloud Platform Lead
+
 These rules guide the development of Python scripts used for automation, data processing, and infrastructure tasks. They prioritize maintainability, robustness, and clarity over complex software engineering patterns.
 
 ## 1. Script vs. Application

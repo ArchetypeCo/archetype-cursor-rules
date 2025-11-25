@@ -1,9 +1,10 @@
 ---
 description: Cloud Architecture Standards and Patterns for AWS and Azure
-globs: **/*.tf, **/*.bicep, **/docs/*.md
+alwaysApply: false
 ---
-
 # Cloud Architecture Standards
+
+**Owner:** Cloud Platform Lead
 
 These rules define the high-level architectural patterns and principles for cloud solutions on Azure and AWS. They guide decision-making for resource selection, networking, and security.
 

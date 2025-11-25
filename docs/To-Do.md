@@ -4,7 +4,6 @@ Running checklist of follow-up items across all rule sets. Update this file when
 
 ## Open Tasks
 
-- [ ] Decide on authoritative naming conventions (singular vs plural, `_key` vs `_id`, `_datetime` vs `_at`) and propagate the decision across every rules document.
 - [ ] Bring `README.md` and any future onboarding docs in sync whenever directories or rule files move (e.g., `data-rules/`, `ai-ml-rules/`, `devops-rules/.cursor/rules`).
 - [ ] Add front matter + structured guidance to `qa-test-rules/.cursor/rules/playwright-cursor-rules.mdc` so Cursor reliably applies those standards.
 - [ ] Expand the QA/testing coverage beyond Playwright to include data pipeline validation and cloud infrastructure testing; update the README section currently linking only to Playwright rules.
@@ -15,4 +14,5 @@ Running checklist of follow-up items across all rule sets. Update this file when
 
 - [x] Create this running To-Do list inside `docs/`.
 - [x] Document a repeatable validation/testing approach (see README “Validation Flow” section for dbt, Terraform, CI/CD, Python scripts, and Playwright suites).
+- [x] Decide and propagate authoritative naming conventions (singular vs plural, `_key` vs `_id`, `_at`/`_date`).
 

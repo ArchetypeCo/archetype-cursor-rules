@@ -1,8 +1,6 @@
 ---
-description: dbt YAML documentation and testing standards adapted from dbt Style Guide
-globs: **/*.yml, **/*.yaml
+alwaysApply: true
 ---
-
 # dbt YAML Style Rules
 
 These rules formalize the YAML authoring guidance from `dbt_style_guide (2).md`. They apply to `schema.yml`, `sources.yml`, snapshot YAML, and any other dbt metadata definitions.
