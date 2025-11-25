@@ -12,8 +12,8 @@ You are an expert Data Architect and Snowflake specialist. You strictly adhere t
 Adhere to strict naming conventions to ensure consistency and maximize Snowflake's caching capabilities.
 
 * **Case Sensitivity:** Use **unquoted snake_case** for all object names (databases, schemas, tables, columns). Snowflake stores unquoted identifiers in uppercase but queries them case-insensitively. Consistent usage maximizes the **Query Results Cache**.
-    * *Bad:* `CustomerTable`, `"CustomerTable"`, `CUSTOMER_TABLE`
-    * *Good:* `customer_table`
+  * *Bad:* `CustomerTable`, `"CustomerTable"`, `CUSTOMER_TABLE`
+  * *Good:* `customer_table`
 * **Table Naming by Layer:**
   * **Raw Layer:** Use **singular nouns** matching source system names. If source names are cryptic (e.g., `F0911`), create views with descriptive names.
     * *Examples:* `customer`, `sales_order`, `account`
@@ -60,82 +60,88 @@ Organize the database into three logical layers representing the data lifecycle:
 
 The analytics layer is designed for **business users** and must use **business terminology** rather than technical or source system names. This ensures self-service analytics and reduces the need for translation layers.
 
-#### Table/Model Naming Principles:
+#### Table/Model Naming Principles
 
 * **Use Business Domain Language:** Names should reflect how the business talks about data, not how systems store it.
-    * *Bad (technical):* `anl_sales__fact_sfdc_opp`, `anl_sales__dim_sf_account`
-    * *Good (business):* `anl_sales__fact_opportunities`, `anl_sales__dim_accounts`
+  * *Bad (technical):* `anl_sales__fact_sfdc_opp`, `anl_sales__dim_sf_account`
+  * *Good (business):* `anl_sales__fact_opportunities`, `anl_sales__dim_accounts`
 * **Avoid Source System References:** Do not include source system names or abbreviations in table names.
-    * *Bad:* `fact_salesforce_orders`, `dim_sap_customers`
-    * *Good:* `fact_orders`, `dim_customers`
+  * *Bad:* `fact_salesforce_orders`, `dim_sap_customers`
+  * *Good:* `fact_orders`, `dim_customers`
 * **Use Plural Nouns:** Analytics layer tables are plural to represent collections (aligns with dimensional modeling).
-    * *Bad:* `fact_order`, `dim_customer`
-    * *Good:* `fact_orders`, `dim_customers`
+  * *Bad:* `fact_order`, `dim_customer`
+  * *Good:* `fact_orders`, `dim_customers`
 * **Fact Table Naming:** Use verb-based business concepts that describe measurable events.
-    * *Examples:* `fact_orders`, `fact_sales`, `fact_transactions`, `fact_shipments`, `fact_returns`
-    * *Bad:* `fact_order_data`, `fact_sales_table`, `fact_txn`
+  * *Examples:* `fact_orders`, `fact_sales`, `fact_transactions`, `fact_shipments`, `fact_returns`
+  * *Bad:* `fact_order_data`, `fact_sales_table`, `fact_txn`
 * **Dimension Table Naming:** Use noun-based business entities that describe "who, what, where, when."
-    * *Examples:* `dim_customers`, `dim_products`, `dim_locations`, `dim_dates`, `dim_employees`
-    * *Bad:* `dim_cust`, `dim_prod_master`, `dim_loc_data`
+  * *Examples:* `dim_customers`, `dim_products`, `dim_locations`, `dim_dates`, `dim_employees`
+  * *Bad:* `dim_cust`, `dim_prod_master`, `dim_loc_data`
 
-#### Column Naming Principles:
+#### Column Naming Principles
 
 * **Use Business-Friendly Column Names:** Translate technical column names to business terminology.
-    * *Bad (technical):* `sfdc_account_id`, `sap_customer_num`, `src_sys_cd`
-    * *Good (business):* `account_id`, `customer_number`, `source_system_code`
+  * *Bad (technical):* `sfdc_account_id`, `sap_customer_num`, `src_sys_cd`
+  * *Good (business):* `account_id`, `customer_number`, `source_system_code`
 * **Avoid Technical Prefixes/Suffixes:** Remove technical metadata from column names visible to business users.
-    * *Bad:* `__load_id`, `_stg`, `_raw`, `_technical_flag`
-    * *Good:* Use technical columns only if necessary, and document them separately
+  * *Bad:* `__load_id`, `_stg`, `_raw`, `_technical_flag`
+  * *Good:* Use technical columns only if necessary, and document them separately
 * **Use Domain-Specific Terminology:** Column names should match business glossary and data dictionary.
-    * *Examples:* 
-        * Finance: `revenue`, `cost_of_goods_sold`, `gross_margin` (not `rev`, `cogs`, `gm`)
-        * Sales: `opportunity_amount`, `close_date`, `stage_name` (not `opp_amt`, `clsd_dt`, `stg`)
-        * HR: `employee_name`, `hire_date`, `department_name` (not `emp_nm`, `hr_dt`, `dept`)
+  * *Examples:*
+    * Finance: `revenue`, `cost_of_goods_sold`, `gross_margin` (not `rev`, `cogs`, `gm`)
+    * Sales: `opportunity_amount`, `close_date`, `stage_name` (not `opp_amt`, `clsd_dt`, `stg`)
+    * HR: `employee_name`, `hire_date`, `department_name` (not `emp_nm`, `hr_dt`, `dept`)
 * **Preserve Business Context:** Include business meaning in column names when helpful.
-    * *Bad:* `status`, `type`, `code` (too generic)
-    * *Good:* `order_status`, `product_type`, `region_code`
+  * *Bad:* `status`, `type`, `code` (too generic)
+  * *Good:* `order_status`, `product_type`, `region_code`
 * **Use Descriptive Names:** Column names should be self-documenting for business users.
-    * *Bad:* `amt`, `dt`, `nm`, `desc`
-    * *Good:* `order_amount`, `order_date`, `customer_name`, `product_description`
+  * *Bad:* `amt`, `dt`, `nm`, `desc`
+  * *Good:* `order_amount`, `order_date`, `customer_name`, `product_description`
 * **Standardize Common Business Terms:** Use consistent naming across all analytics models.
-    * *Examples:*
-        * Always use `customer_id` (not `customer_number`, `cust_id`, `client_id`)
-        * Always use `order_date` (not `order_dt`, `ord_date`, `date_ordered`)
-        * Always use `revenue` (not `rev`, `sales_amount`, `income`)
+  * *Examples:*
+    * Always use `customer_id` (not `customer_number`, `cust_id`, `client_id`)
+    * Always use `order_date` (not `order_dt`, `ord_date`, `date_ordered`)
+    * Always use `revenue` (not `rev`, `sales_amount`, `income`)
 
-#### Column Naming Examples by Domain:
+#### Column Naming Examples by Domain
 
 **Sales Domain:**
+
 * *Bad:* `sfdc_opp_id`, `opp_amt`, `clsd_dt`, `stg_nm`
 * *Good:* `opportunity_id`, `opportunity_amount`, `close_date`, `stage_name`
 
 **Finance Domain:**
+
 * *Bad:* `acct_num`, `rev_amt`, `cogs`, `gm_pct`
 * *Good:* `account_number`, `revenue_amount`, `cost_of_goods_sold`, `gross_margin_percent`
 
 **Customer Domain:**
+
 * *Bad:* `cust_id`, `cust_nm`, `cust_email_addr`, `cust_phn`
 * *Good:* `customer_id`, `customer_name`, `customer_email_address`, `customer_phone_number`
 
 **Product Domain:**
+
 * *Bad:* `prod_sku`, `prod_nm`, `prod_cat`, `prod_desc`
 * *Good:* `product_sku`, `product_name`, `product_category`, `product_description`
 
-#### Business-Friendly Naming Checklist:
+#### Business-Friendly Naming Checklist
 
 Before finalizing analytics layer models, verify:
-- [ ] Table names use business terminology (not source system names)
-- [ ] Column names are self-documenting for business users
-- [ ] No technical abbreviations or jargon
-- [ ] Names align with business glossary/data dictionary
-- [ ] Consistent naming across related models
-- [ ] Fact tables use verb-based business concepts
-- [ ] Dimension tables use noun-based business entities
-- [ ] Column names preserve business context (e.g., `order_status` not `status`)
 
-#### Mapping Technical to Business-Friendly Names:
+* [ ] Table names use business terminology (not source system names)
+* [ ] Column names are self-documenting for business users
+* [ ] No technical abbreviations or jargon
+* [ ] Names align with business glossary/data dictionary
+* [ ] Consistent naming across related models
+* [ ] Fact tables use verb-based business concepts
+* [ ] Dimension tables use noun-based business entities
+* [ ] Column names preserve business context (e.g., `order_status` not `status`)
+
+#### Mapping Technical to Business-Friendly Names
 
 When transforming from integration layer to analytics layer:
+
 1. **Remove source system prefixes:** `sfdc_account_id` → `account_id`
 2. **Expand abbreviations:** `cust_nm` → `customer_name`
 3. **Add business context:** `status` → `order_status`
@@ -143,7 +149,7 @@ When transforming from integration layer to analytics layer:
 5. **Apply domain terminology:** `rev` → `revenue` (finance), `opp_amt` → `opportunity_amount` (sales)
 6. **Standardize across models:** Ensure `customer_id` is consistent everywhere
 
-#### Documentation Requirements:
+#### Documentation Requirements
 
 * **Business Glossary:** Maintain a business glossary mapping technical names to business-friendly names.
 * **Column Descriptions:** Every analytics layer column must have a business-friendly description in YAML.
@@ -180,20 +186,22 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
 
 * **Declare All Constraints:** Always define `PRIMARY KEY`, `FOREIGN KEY`, and `UNIQUE` constraints.
 * **Enable Join Elimination:** Set the `RELY` property on constraints. This tells the Snowflake optimizer to eliminate redundant joins if the query does not select columns from the joined table, significantly improving performance.
-    * *Syntax:* `CONSTRAINT pk_customer PRIMARY KEY (customer_id) RELY`
+  * *Syntax:* `CONSTRAINT pk_customer PRIMARY KEY (customer_id) RELY`
 * **Data Types:**
-    * Use `VARCHAR` without length limits unless strict enforcement is needed (Snowflake compresses automatically).
-    * Use `NUMBER(38,0)` for integer IDs.
-    * Use `VARIANT` for semi-structured data.
+  * Use `VARCHAR` without length limits unless strict enforcement is needed (Snowflake compresses automatically).
+  * Use `NUMBER(38,0)` for integer IDs.
+  * Use `VARIANT` for semi-structured data.
 
 ## 4. Advanced Modeling Patterns
 
 ### Slowly Changing Dimensions (SCD)
+
 * **Type 1 (Overwrite):** Use `MERGE` statements. Include a `diff_hash` column to compare records efficiently before updating.
 * **Type 2 (History):** Use **Snowflake Streams** to detect changes. Insert the "before" image from the stream into the Type 2 table to avoid expensive lookups and window functions. This can be up to 40% faster than traditional methods.
 * **Dynamic Tables:** Use declarative Dynamic Tables for Type 2 dimensions if code simplicity is preferred over raw performance. Note that this uses window functions and may be more resource-intensive.
 
 ### Fact Tables
+
 * **Reverse Balance:** For transactional facts requiring updates (e.g., order modifications), use a **Reverse Balance** (Mirror Image) model. Insert a negating record for the old value and a positive record for the new value. This allows for easy aggregation `SUM()` without complex update logic.
 * **Recovering Deletions:** Use a "Forward-Leading" insertion method. If a record is physically deleted in the source, insert a logical deletion record in the next load to maintain history.
 
@@ -210,6 +218,7 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
   * **Integration:** Views (default), Tables (if performance requires)
   * **Analytics:** Tables (always) for marts
 * **In-Model Configuration:** Use `{{ config() }}` block at the top of SQL files:
+
   ```sql
   {{
     config(
@@ -218,6 +227,7 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
     )
   }}
   ```
+
 * **Directory-Level Configuration:** Use `dbt_project.yml` for layer-wide defaults.
 * **Tags:** Apply tags at model level for build grouping (e.g., `tags: ['sales', 'daily']`).
 * **Dependencies:**
@@ -248,7 +258,7 @@ Snowflake constraints are not enforced (except NOT NULL), but they are critical 
 
 * **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying Snowflake Tags (e.g., `WITH TAG (confidentiality = 'pii')`).
 * **Ownership Documentation:** Every `CREATE TABLE` or `CREATE VIEW` statement must include a `COMMENT` property indicating the business domain owner or purpose.
-    * *Example:* `COMMENT = 'Owner: Finance Domain; Content: Monthly revenue aggregates'`
+  * *Example:* `COMMENT = 'Owner: Finance Domain; Content: Monthly revenue aggregates'`
 * **Lineage Clarity:** Use explicit column aliases in the final `SELECT` list of any transformation to ensure lineage parsers can trace data flow, even if the name hasn't changed.
 
 ## 10. Quality Gates (dbt)
