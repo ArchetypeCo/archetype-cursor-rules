@@ -8,7 +8,11 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 
 ## Architecture
 
-- **Logical (dbt models):** Simplified Medallion layers `raw`, `int`, `anl` defined in `data-rules/dbt-datamodelling-snowflake.mdc`.
+**Important:** Before starting any dbt project, you must choose an architecture based on client needs. See `data-rules/architecture-layers-comparison.md` for detailed guidance.
+
+- **Logical (dbt models):** Two architecture options available:
+  - **Medallion Architecture:** 3-layer approach (`raw` → `int` → `anl`) defined in `data-rules/dbt-datamodelling-medallion.mdc`
+  - **Traditional 5-Layer Architecture:** 5-layer approach (`dl` → `stg` → `ods` → `dw` → `bi`) defined in `data-rules/dbt-datamodelling-traditional.mdc`
 - **Physical (Snowflake account objects):** Databases/Schemas/Warehouses follow `RAW`, `PREPARE`, `ANALYZE` conventions with RBAC and security controls described in `devops-rules/.cursor/rules/snowflake-architecture.mdc`.
 - **Cloud foundations:** Cross-cloud guardrails (networking, identity, tagging) live in `devops-rules/.cursor/rules/cloud-architecture.mdc`.
 
@@ -18,8 +22,12 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 
 **Owner:** Data Engineering Lead
 
-- **`dbt-datamodelling-snowflake.mdc`** — Naming conventions (layer-specific), Medallion patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
-- **`dbt-sql-style.mdc`** — SQL formatting, CTE structure, query organization, join discipline, and dbt-specific dependencies (`raw_` → `int_` → `anl_`).
+**Start here:** See `data-rules/README.md` for comprehensive guidance on architecture selection and usage.
+
+- **`architecture-layers-comparison.md`** — **Start here first** - Comprehensive comparison of Medallion vs Traditional 5-Layer architectures. Use this document to understand architectural differences and make informed decisions before selecting an architecture.
+- **`dbt-datamodelling-medallion.mdc`** — Complete dbt data modeling rules for Medallion Architecture (3-layer: Raw → Integration → Analytics). Includes naming conventions, layer patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
+- **`dbt-datamodelling-traditional.mdc`** — Complete dbt data modeling rules for Traditional 5-Layer Architecture (DL → STG → ODS → DW → BI). Includes naming conventions, layer patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
+- **`dbt-sql-style.mdc`** — SQL formatting, CTE structure, query organization, join discipline, and dbt-specific layer dependencies for both architectures.
 - **`dbt-yaml-style.mdc`** — YAML documentation/testing standards, file layout mirrors, description requirements, unit-testing examples for dbt 1.8+.
 - **`dbt-macro-best-practices.mdc`** — Macro decision tree, naming, structure, documentation template, common patterns (surrogate keys, soft deletes), error handling, testing, dbt-utils usage.
 
@@ -58,16 +66,36 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 
 ## Key Naming Conventions
 
+**Note:** Naming conventions vary by architecture. Choose your architecture first (see `data-rules/architecture-layers-comparison.md`), then follow the appropriate naming patterns.
+
 ### dbt Model Naming
+
+**Medallion Architecture:**
 
 - **Raw Layer**: `raw_<party>__<source_system>__<table_name>`
 - **Integration Layer**: `int_<party>__<source_system>__<entity>` or `int_<subject_area>__<entity>`
 - **Analytics Layer**: `anl_<subject_area>__<fact|dim>_<name>`
 
+**Traditional 5-Layer Architecture:**
+
+- **DL Layer**: `dl_<party>__<source_system>__<table_name>`
+- **STG Layer**: `stg_<party>__<source_system>__<table_name>` (sources only, no materialization)
+- **ODS Layer**: `ods_<party>__<source_system>__<entity>` or `ods__<source_system>__<entity>`
+- **DW Layer**: `dw_<subject_area>__<fact|dim>_<name>`
+- **BI Layer**: `bi_<subject_area>__<view_name>`
+
 ### Table Naming
 
-- **Raw/Int**: Singular nouns (`customer`, `sales_order`)
+**Medallion Architecture:**
+
+- **Raw/Integration**: Singular nouns (`customer`, `sales_order`)
 - **Analytics**: Plural nouns (`fact_orders`, `dim_customers`)
+
+**Traditional Architecture:**
+
+- **DL/STG/ODS**: Singular nouns (`customer`, `sales_order`)
+- **DW**: Plural nouns (`fact_orders`, `dim_customers`)
+- **BI**: Plural nouns for views/aggregations
 
 ### Primary Keys
 
