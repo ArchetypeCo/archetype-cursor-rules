@@ -22,7 +22,7 @@ These rules codify the organization's `dbt_style_guide (2).md` standards for eve
 * Finish with a `final` (or equivalent) CTE and `select * from final` to simplify debugging without editing downstream references.
 * Example scaffold:
 
-```
+```sql
 with
 
 events as (
@@ -61,10 +61,25 @@ select * from filtered_events
 ## 5. dbt-Specific Notes
 
 * **Layer Dependencies:**
-    * `raw_` models may select directly from `sources` defined in `sources.yml`.
-    * `int_` models must use `{{ ref('raw_*') }}` to reference raw layer.
-    * `anl_` models must use `{{ ref('int_*') }}` to reference integration layer.
-    * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
-* **Model Naming:** Follow layer prefixes (`raw_`, `int_`, `anl_`) with double underscore `__` delimiters for party/system/subject area segments.
+
+  **Medallion Architecture:**
+  * `raw_` models may select directly from `sources` defined in `sources.yml`.
+  * `int_` models must use `{{ ref('raw_*') }}` to reference raw layer.
+  * `anl_` models must use `{{ ref('int_*') }}` to reference integration layer.
+  * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
+
+  **Traditional 5-Layer Architecture:**
+  * `dl_` models may select directly from `sources` defined in `sources.yml` (cloud storage) or use `{{ ref() }}` for other DL models.
+  * `stg_` models reference `sources` only (Fivetran-landed data) - no materialization.
+  * `ods_` models may select from `sources` or use `{{ ref('dl_*') }}` / `{{ ref('stg_*') }}` to reference DL/STG layers.
+  * `dw_` models must use `{{ ref('ods_*') }}` to reference ODS layer.
+  * `bi_` models must use `{{ ref('dw_*') }}` to reference DW layer.
+  * Never skip layers (e.g., `dw_` models cannot reference `dl_` or `stg_` directly; `bi_` models cannot reference `ods_` directly).
+
+* **Model Naming:** Follow layer prefixes with double underscore `__` delimiters for party/system/subject area segments:
+  * **Medallion:** `raw_`, `int_`, `anl_` (e.g., `raw_acme__salesforce__account`, `int_sales__customer`, `anl_sales__fact_orders`)
+  * **Traditional:** `dl_`, `stg_`, `ods_`, `dw_`, `bi_` (e.g., `ods__netsuite__accounts`, `dw__finance__fact_transactions`, `bi__sales__monthly_summary`)
+
 * **Snapshots:** Snapshot SQL should mirror these conventions; if duplicating logic across snapshots and models, refactor into macros.
+
 * **Documentation:** Keep model headers (change log, developer, purpose) in YAML, not inline SQL comments, to centralize documentation.

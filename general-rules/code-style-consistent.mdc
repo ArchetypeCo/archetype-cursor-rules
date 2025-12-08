@@ -2,6 +2,8 @@
 alwaysApply: true
 ---
 
+# Code Style Consistency
+
 // Code Style Consistency - .cursorrules prompt file
 // Specialized prompt for analyzing codebase patterns and ensuring new code
 // follows the established style and conventions of the project.
@@ -40,7 +42,7 @@ Implement this step-by-step approach to style analysis:
 // STYLE PROFILE TEMPLATE
 Compile a style profile with these key elements:
 
-```
+```markdown
 ## Code Style Profile
 
 ### Naming Conventions
@@ -137,7 +139,7 @@ Follow these best practices when adapting code:
 // CONSISTENCY PROMPT TEMPLATE
 Use this template as a prefix to other prompts to maintain style consistency:
 
-```
+```text
 Before implementing this feature, I need to:
 
 1. Analyze the existing codebase to determine the established style conventions

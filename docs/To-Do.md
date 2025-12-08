@@ -15,4 +15,3 @@ Running checklist of follow-up items across all rule sets. Update this file when
 - [x] Create this running To-Do list inside `docs/`.
 - [x] Document a repeatable validation/testing approach (see README “Validation Flow” section for dbt, Terraform, CI/CD, Python scripts, and Playwright suites).
 - [x] Decide and propagate authoritative naming conventions (singular vs plural, `_key` vs `_id`, `_at`/`_date`).
-
