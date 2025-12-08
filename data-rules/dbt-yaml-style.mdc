@@ -49,7 +49,7 @@ unit_tests:
 
 ## 5. Example Template
 
-```
+```yaml
 version: 2
 
 models:
