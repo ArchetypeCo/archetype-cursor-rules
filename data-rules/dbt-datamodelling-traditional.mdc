@@ -435,15 +435,23 @@ See Section 8 (Testing) for detailed test requirements and examples.
 
 * **Type 1 (Overwrite):** Use `MERGE` statements. Include a `diff_hash` column to compare records efficiently before updating.
 * **Type 2 (History):** Use appropriate change detection methods for your database platform:
-  * **Snowflake:** Use Snowflake Streams to detect changes
+  * **Snowflake:** Use Snowflake Streams to detect changes. Insert the "before" image from the stream into the Type 2 table to avoid expensive lookups and window functions. This can be up to 40% faster than traditional methods.
   * **Other Databases:** Use window functions or change data capture (CDC) methods
   * **Primary Key Generation:** Always use `{{ dbt_utils.generate_surrogate_key(['natural_key', 'last_updated_at']) }}` for surrogate keys. Use `last_updated_at` from source (not `dbt_valid_from` or creation date). Fact tables join using natural key + date range: `on f.natural_key = d.natural_key and f.transaction_date >= d.valid_from and (f.transaction_date < d.valid_to or d.valid_to is null)`. Multiple SCDs join independently using each natural key from the fact table.
+* **Dynamic Tables:** For Snowflake, use declarative Dynamic Tables for Type 2 dimensions if code simplicity is preferred over raw performance. Note that this uses window functions and may be more resource-intensive.
 * **Type 3:** Store limited history in separate columns (rarely used)
 
 ### Fact Tables
 
 * **Reverse Balance:** For transactional facts requiring updates (e.g., order modifications), use a **Reverse Balance** (Mirror Image) model. Insert a negating record for the old value and a positive record for the new value. This allows for easy aggregation `SUM()` without complex update logic.
 * **Recovering Deletions:** Use a "Forward-Leading" insertion method. If a record is physically deleted in the source, insert a logical deletion record in the next load to maintain history.
+
+### Database-Specific Optimizations
+
+* **Snowflake Optimization:**
+  * **Clustering:** Only apply `CLUSTER BY` if the table is in the multi-terabyte range and query pruning is insufficient. Do not pre-optimize with clustering keys on small tables.
+  * **Micro-partitions:** Rely on natural ingestion order for initial pruning. If query performance degrades, investigate clustering.
+  * **Virtual Columns:** Use virtual columns (derived columns) to embed simple transformation logic directly in the table definition without storage overhead.
 
 ## 7. dbt Model Configuration & Materialization
 
@@ -681,7 +689,7 @@ packages:
 
 ## 15. Governance & Documentation
 
-* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform.
+* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform (e.g., Snowflake: `WITH TAG (confidentiality = 'pii')`).
 * **Ownership Documentation:** Every model must include documentation indicating the business domain owner or purpose in YAML.
 * **Lineage Clarity:** Use explicit column aliases in the final `SELECT` list of any transformation to ensure lineage parsers can trace data flow, even if the name hasn't changed.
 

@@ -536,6 +536,13 @@ See Section 8 (Testing) for detailed test requirements and examples.
 * **Reverse Balance:** For transactional facts requiring updates (e.g., order modifications), use a **Reverse Balance** (Mirror Image) model. Insert a negating record for the old value and a positive record for the new value. This allows for easy aggregation `SUM()` without complex update logic.
 * **Recovering Deletions:** Use a "Forward-Leading" insertion method. If a record is physically deleted in the source, insert a logical deletion record in the next load to maintain history.
 
+### Database-Specific Optimizations
+
+* **Snowflake Optimization:**
+  * **Clustering:** Only apply `CLUSTER BY` if the table is in the multi-terabyte range and query pruning is insufficient. Do not pre-optimize with clustering keys on small tables.
+  * **Micro-partitions:** Rely on natural ingestion order for initial pruning. If query performance degrades, investigate clustering.
+  * **Virtual Columns:** Use virtual columns (derived columns) to embed simple transformation logic directly in the table definition without storage overhead.
+
 ## 7. dbt Model Configuration & Materialization
 
 * **Materialization by Layer:**
@@ -770,7 +777,7 @@ packages:
 
 ## 15. Governance & Documentation
 
-* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform.
+* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform (e.g., Snowflake: `WITH TAG (confidentiality = 'pii')`).
 * **Ownership Documentation:** Every model must include documentation indicating the business domain owner or purpose in YAML.
 * **Lineage Clarity:** Use explicit column aliases in the final `SELECT` list of any transformation to ensure lineage parsers can trace data flow, even if the name hasn't changed.
 
