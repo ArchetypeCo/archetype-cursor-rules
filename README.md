@@ -1,10 +1,17 @@
 # Archetype Cursor Rules
 
-Comprehensive Cursor AI rules for dbt data modeling with Snowflake, enforcing Medallion architecture and dimensional modeling best practices.
-
 ## Overview
 
-This repository contains Cursor AI rules that enforce consistent standards across data modeling, SQL/YAML authoring, macros, AI/ML workflows, DevOps/Cloud operations, and QA automation. Use these rules as Cursor prompt files to keep every discipline aligned with the same conventions.
+This repository contains comprehensive Cursor AI rules that enforce consistent standards across multiple disciplines:
+
+- **Data Modeling & dbt:** Architecture selection (Medallion vs Traditional 5-Layer), dimensional modeling, SQL/YAML authoring, macros, testing, and governance
+- **AI & ML:** Snowflake ML notebooks, Snowpark ML workflows, model registry/deployment, and MLOps practices
+- **DevOps & Cloud:** Infrastructure as Code (Terraform), CI/CD pipelines (Azure DevOps & GitHub Actions), cloud architecture patterns (Azure/AWS), Snowflake account management, and Python scripting standards
+- **QA & Testing:** Playwright end-to-end testing best practices for TypeScript/JavaScript
+- **Project Management:** Critical Path Method and project management standards
+- **General Authoring:** Code style consistency and documentation best practices
+
+Use these rules as Cursor prompt files (`.mdc` format) to keep every discipline aligned with the same conventions. Each rule set is owned by domain experts and designed to prevent technical debt while ensuring consistency across teams and projects.
 
 ## Architecture
 
@@ -22,9 +29,9 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 
 **Owner:** Data Engineering Lead
 
-**Start here:** See `data-rules/README.md` for comprehensive guidance on architecture selection and usage.
+**Start here:** See `data-rules/README.md` for comprehensive guidance on architecture selection and usage. Review `data-rules/architecture-layers-comparison.md` to understand architectural differences and make an informed decision.
 
-- **`architecture-layers-comparison.md`** — **Start here first** - Comprehensive comparison of Medallion vs Traditional 5-Layer architectures. Use this document to understand architectural differences and make informed decisions before selecting an architecture.
+- **`architecture-layers-comparison.md`** — Comprehensive comparison of Medallion vs Traditional 5-Layer architectures. Use this document to understand architectural differences and make informed decisions before selecting an architecture.
 - **`dbt-datamodelling-medallion.mdc`** — Complete dbt data modeling rules for Medallion Architecture (3-layer: Raw → Integration → Analytics). Includes naming conventions, layer patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
 - **`dbt-datamodelling-traditional.mdc`** — Complete dbt data modeling rules for Traditional 5-Layer Architecture (DL → STG → ODS → DW → BI). Includes naming conventions, layer patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
 - **`dbt-sql-style.mdc`** — SQL formatting, CTE structure, query organization, join discipline, and dbt-specific layer dependencies for both architectures.
