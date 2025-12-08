@@ -54,7 +54,7 @@ Adhere to strict naming conventions to ensure consistency and maximize Snowflake
 
 ## 2. Architectural Layers (Medallion)
 
-Organize the database into three logical layers representing the data lifecycle: **raw**, **int**, and **anl**. @jdimmer-arch work on this one please, based in our conversation. Add a drawing here I think so people understand and clearly explain the purpose for each phase.
+Organize the database into three logical layers representing the data lifecycle: **raw**, **int**, and **anl**.
 
 ### 2.1 Analytics Layer: Business-Friendly Naming Standards
 
