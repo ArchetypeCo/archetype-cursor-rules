@@ -15,7 +15,8 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 ## Rules Catalog
 
 ### Data Rules (`data-rules/`)
-*Owner: Data Engineering Lead*
+
+**Owner:** Data Engineering Lead
 
 - **`dbt-datamodelling-snowflake.mdc`** — Naming conventions (layer-specific), Medallion patterns, dimensional modeling, constraints, SCD/fact guidance, optimization, and governance.
 - **`dbt-sql-style.mdc`** — SQL formatting, CTE structure, query organization, join discipline, and dbt-specific dependencies (`raw_` → `int_` → `anl_`).
@@ -23,12 +24,14 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 - **`dbt-macro-best-practices.mdc`** — Macro decision tree, naming, structure, documentation template, common patterns (surrogate keys, soft deletes), error handling, testing, dbt-utils usage.
 
 ### AI & ML Rules (`ai-ml-rules/`)
-*Owner: AI/ML Architect*
+
+**Owner:** AI/ML Architect
 
 - **`snowflake-ml-notebooks.mdc`** — Snowflake notebook setup, runtime selection, Snowpark ML workflows, model registry/deployment, MLOps, and naming.
 
 ### DevOps & Cloud Rules (`devops-rules/.cursor/rules/`)
-*Owner: Cloud Platform Lead*
+
+**Owner:** Cloud Platform Lead
 
 - **`snowflake-architecture.mdc`** — Account object management, warehouse sizing, RBAC, authentication/network policies, Terraform automation, and checklists.
 - **`cloud-architecture.mdc`** — Azure/AWS architecture patterns (networking, identity, storage), cross-cloud security baseline, tagging, service decision framework.
@@ -37,12 +40,14 @@ This repository contains Cursor AI rules that enforce consistent standards acros
 - **`python-scripting.mdc`** — Guidance for automation scripts (argparse, logging, error handling, SDK auth, type hints, dependencies).
 
 ### QA & Testing Rules (`qa-test-rules/.cursor/rules/`)
-*Owner: QA Lead*
+
+**Owner:** QA Lead
 
 - **`playwright-cursor-rules.mdc`** — Playwright best practices for TypeScript/JavaScript end-to-end tests, fixtures, locator strategy, config usage, and stability tips.
 
 ### Project Management (`cpm-rules/`)
-*Owner: PMO Lead*
+
+**Owner:** PMO Lead
 
 - **`cpm-rules.mdc`** — (Placeholder) Critical Path Method and project management standards.
 
