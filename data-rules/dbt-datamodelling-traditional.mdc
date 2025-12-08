@@ -1,0 +1,710 @@
+---
+alwaysApply: false
+---
+
+# Data Modeling & Traditional 5-Layer Architecture Rules
+
+**Owner:** Data Engineering Lead
+
+You are an expert Data Architect and database specialist. You strictly adhere to the principles of Dimensional Modeling (Kimball) within a Traditional 5-Layer Architecture. Your goal is to create robust, scalable, and cost-effective data models while enforcing strict governance to prevent technical debt.
+
+## 1. Naming Standards & Conventions
+
+Adhere to strict naming conventions to ensure consistency and maximize database caching capabilities.
+
+* **Case Sensitivity:** Use **unquoted snake_case** for all object names (databases, schemas, tables, columns). Consistent usage maximizes query performance and caching.
+  * *Bad:* `CustomerTable`, `"CustomerTable"`, `CUSTOMER_TABLE`
+  * *Good:* `customer_table`
+* **Table Naming by Layer:**
+  * **ODS Layer:** Use **singular nouns** with business terminology. These represent normalized entities (one-row-per-entity).
+    * *Examples:* `account`, `transaction`, `customer`
+  * **DW Layer:** Use **plural nouns** for dimensional model objects. Facts and dimensions follow star schema patterns.
+    * **Facts:** `fact_<business_concept>` (e.g., `fact_transactions`, `fact_sales`, `fact_orders`)
+    * **Dimensions:** `dim_<entity>` (e.g., `dim_accounts`, `dim_customers`, `dim_dates`)
+    * **Lookup Tables:** Are dimensions and use `dim_` prefix (e.g., `dim_status_codes`, `dim_regions`, `dim_product_categories`). There is no separate "lookup" category in Kimball methodology.
+    * *Bad:* `account`, `transaction`, `lookup_status_codes`
+    * *Good:* `dim_accounts`, `fact_transactions`, `dim_status_codes`
+  * **BI Layer:** Use **plural nouns** for team/project-specific views and aggregations.
+    * *Examples:* `sales_report`, `finance_summary`
+* **dbt Model Naming Patterns:**
+  * **ODS Layer:** `ods__<source>__<object>` (e.g., `ods__netsuite__account`, `ods__salesforce__opportunity`)
+    * Use double underscore `__` to delimit source/object segments
+    * Singular object names
+  * **DW Layer:**
+    * **Dimensions:** `dw__<subject>__dim_<object>` (e.g., `dw__finance__dim_accounts`)
+    * **Facts:** `dw__<subject>__fact_<object>` (e.g., `dw__finance__fact_transaction_details`)
+    * Plural object names
+    * Subject area may be omitted for enterprise-wide models: `dw__dim_dates`
+  * **BI Layer:** `bi__<team>__<object>` or `bi__<project>__<object>` (e.g., `bi__sales__monthly_summary`)
+* **Primary Key Columns:** Define the primary key column as `<singular_table_name>_key` using a deterministic hash of the natural key fields stored as `varchar`. Use `dbt_utils.generate_surrogate_key()` for database-agnostic compatibility, or database-native hash functions (e.g., `sha2()` for Snowflake).
+  * *Example:* `account_key` = `{{ dbt_utils.generate_surrogate_key(['account_id']) }}`
+  * Always include natural key columns alongside the surrogate key for traceability.
+  * **Name Collision Exception:** If a source system already contains `<entity>_key`, name the surrogate `<entity>_pk` to avoid ambiguity while maintaining `_key` parity elsewhere.
+* **Foreign Key Columns:** Use the exact name of the referenced primary key column (usually `<entity>_key`) to facilitate natural joins. Only deviate when the upstream PK used `_pk` per the collision rule.
+  * *Example:* If `dim_accounts` has `account_key`, then `fact_transactions` must also use `account_key` (not `account_id` or `acct_key`).
+* **Column Naming Patterns:**
+  * **Timestamps:** Use `<event>_at` in UTC (e.g., `created_at`, `updated_at`). If a different timezone is required, suffix with the zone (`processed_at_pt`). Events must use past-tense verbs.
+  * **Dates:** Use `<event>_date` (e.g., `start_date`, `closed_date`).
+  * **Booleans:** Prefix with `is_` or `has_` (e.g., `is_active`, `is_deleted`, `has_permission`).
+  * **Currency:** Use decimal format (e.g., `19.99`). If stored as cents, suffix with `_in_cents` (e.g., `price_in_cents`).
+  * **Lookup Tables:** Follow pattern `<object>_key`, `<object>_code` or `<object>_name`, `<object>_description`.
+* **Constraint Naming:** Explicitly name your constraints to preserve logical context in the physical model:
+  * **PK:** `pk_<table_name>` (e.g., `pk_account`, `pk_fact_transactions`)
+  * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_transactions_has_dim_accounts`)
+  * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
+* **No Object Suffixes:** Do **not** use suffixes to denote object types (e.g., `_v`, `_t`, `_mv`). The underlying object type may change (e.g., View to Table) without breaking downstream dependencies.
+* **Avoid Abbreviations:** Use full descriptive names unless the abbreviation is universally standard (e.g., `usd`, `id`). Ambiguity leads to confusion (e.g., does `cust_ref` mean reference, refund, or refrigeration?).
+
+## 2. Architectural Layers (Traditional 5-Layer)
+
+Organize the database into five logical layers representing the data lifecycle: **DL**, **STG**, **ODS**, **DW**, and **BI**.
+
+### 2.1 Data Lake (DL) Layer
+
+* **Purpose:** Raw data from cloud storage (S3, GCS, Azure Blob)
+* **Materialization:** Views or Tables
+* **Naming:** No specific prefix required (sources only)
+* **Best Practices:**
+  * Use Views for cloud storage data (schema-on-read)
+  * Implement data quality checks at ingestion
+  * Track data lineage and provenance
+  * Organize by source system and date partitions
+
+### 2.2 Staging (STG) Layer
+
+* **Purpose:** Fivetran-landed data, sources defined here
+* **Materialization:** Source only (no materialization)
+* **Naming:** No specific prefix (sources defined in `sources.yml`)
+* **Best Practices:**
+  * Define all sources in `sources.yml` files
+  * Organize by source system in `sources/` folder
+  * Document source freshness requirements
+  * Implement freshness checks with `warn_after` and `error_after` thresholds
+
+### 2.3 Operational Data Store (ODS) Layer
+
+* **Purpose:** Operational Data Store — normalized, light transforms
+* **Materialization:** Tables (always)
+* **Naming:** `ods__<source>__<object>` (singular nouns)
+* **Best Practices:**
+  * Normalize data to 3NF (Third Normal Form)
+  * Create one-row-per-entity structures
+  * Apply business rules and data quality rules
+  * Handle soft deletes and data retention
+  * Track data lineage from sources
+  * Generate surrogate keys for all entities
+  * Include natural keys for traceability
+
+### 2.4 Data Warehouse (DW) Layer
+
+* **Purpose:** Data Warehouse — dimensional models (Kimball)
+* **Materialization:** Tables (always)
+* **Naming:**
+  * Dimensions: `dw__<subject>__dim_<object>` (plural)
+  * Facts: `dw__<subject>__fact_<object>` (plural)
+* **Best Practices:**
+  * Follow Kimball star schema methodology
+  * Use conformed dimensions for enterprise consistency
+  * Implement slowly changing dimensions (SCD) appropriately
+  * Fact tables: Use plural nouns, verb-based concepts
+  * Dimension tables: Use plural nouns, noun-based entities
+  * Always materialize as Tables for performance
+  * Consider incremental models for large fact tables
+  * Use partitioning strategies for very large tables
+
+### 2.5 Business Intelligence (BI) Layer
+
+* **Purpose:** Team/project-specific views and aggregations
+* **Materialization:** Views or Tables (based on complexity and usage)
+* **Naming:** `bi__<team>__<object>` or `bi__<project>__<object>` (plural)
+* **Best Practices:**
+  * Create team/project-specific aggregations
+  * Never modify enterprise DW models
+  * Use Views for simple transformations
+  * Use Tables for complex aggregations or frequently accessed data
+  * Always reference DW layer models, never ODS or STG directly
+  * Document business logic and calculations
+  * Each team owns their BI layer models
+  * Implement access controls per team
+  * Regular review and cleanup of unused models
+
+## 3. Folder Structure
+
+```text
+models/
+├── sources/
+│   └── <source>/
+│       └── sources__<source>.yml
+├── ods/
+│   └── <source>/
+│       └── ods__<source>__<object>.sql
+├── dw/
+│   └── <subject_area>/
+│       ├── dw__<subject>__dim_<object>.sql
+│       ├── dw__<subject>__fact_<object>.sql
+│       └── dw__<subject>.yml
+└── bi/
+    └── <team_or_project>/
+        └── bi__<team>__<object>.sql
+```
+
+## 4. SQL Style
+
+### General Rules
+
+* **Lowercase everything**: field names, function names, aliases, keywords
+* **Trailing commas**: always use trailing commas for compatibility
+* **4-space indents**: except predicates which align with `where`
+* **80 character line limit**: break long lines
+* **Always use `as`**: when aliasing fields or tables
+* **Table aliases required**: when joining two or more tables
+
+### Column Output — Always Lowercase
+
+```sql
+-- CORRECT
+select
+    account_id,
+    account_name,
+    is_active
+
+-- WRONG
+select
+    ACCOUNT_ID,
+    ACCOUNT_NAME,
+    IS_ACTIVE
+```
+
+### CTE Structure
+
+All models should use CTEs. Place all `ref()` and `source()` statements at the top:
+
+```sql
+with
+
+source_accounts as (
+    select * from {{ source('netsuite', 'accounts') }}
+),
+
+ods_transactions as (
+    select * from {{ ref('ods__netsuite__transactions') }}
+),
+
+-- business logic CTEs here
+filtered as (
+    select
+        account_id,
+        account_name,
+        is_active
+    from source_accounts
+    where is_deleted = false
+),
+
+final as (
+    select
+        account_id,
+        account_name,
+        is_active,
+        current_timestamp as dbt_refresh_date
+    from filtered
+)
+
+select * from final
+```
+
+### Field Ordering
+
+Order fields in this sequence:
+
+1. **Primary key** — surrogate key (single column, always first)
+2. **Unique key columns** — natural/business key columns that uniquely identify the record
+3. **Foreign keys** — surrogate keys to dimension tables
+4. **Attributes** — descriptive columns
+5. **Measures** — numeric values (for facts only)
+6. **Dates and timestamps** — business dates
+7. **Audit/metadata columns** — dbt_refresh_date, chng_hash, etc.
+
+#### Dimension Example
+
+```sql
+select
+    /* primary key */
+    {{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key,
+    
+    /* unique key */
+    account_id,
+    
+    /* foreign keys */
+    {{ dbt_utils.generate_surrogate_key(['parent_id']) }} as parent_account_key,
+    
+    /* attributes */
+    account_name,
+    account_type,
+    is_active,
+    
+    /* dates */
+    created_at,
+    updated_at,
+    
+    /* audit */
+    current_timestamp as dbt_refresh_date
+```
+
+#### Fact Example (Composite Unique Key)
+
+```sql
+select
+    /* primary key */
+    {{ dbt_utils.generate_surrogate_key(['transaction_id', 'transaction_line_id']) }} as transaction_key,
+    
+    /* unique key (composite) */
+    transaction_id,
+    transaction_line_id,
+    
+    /* foreign keys */
+    {{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key,
+    {{ dbt_utils.generate_surrogate_key(['department_id']) }} as department_key,
+    {{ dbt_utils.generate_surrogate_key(['subsidiary_id']) }} as subsidiary_key,
+    {{ dbt_utils.generate_surrogate_key(['accounting_period_id']) }} as accounting_period_key,
+    
+    /* degenerate dimensions */
+    transaction_number,
+    transaction_type,
+    
+    /* measures */
+    quantity,
+    amount,
+    net_amount,
+    
+    /* dates */
+    transaction_date,
+    
+    /* audit */
+    current_timestamp as dbt_refresh_date,
+    chng_hash
+```
+
+### Surrogate Keys
+
+Generate surrogate keys by hashing natural key columns. Name surrogate keys as `<object>_key`.
+
+#### Preferred: dbt_utils.generate_surrogate_key()
+
+Use `dbt_utils.generate_surrogate_key()` — it's database-agnostic, handles nulls consistently, and is maintained by dbt Labs:
+
+```sql
+-- single column key
+{{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key
+
+-- composite key
+{{ dbt_utils.generate_surrogate_key(['transaction_id', 'transaction_line_id']) }} as transaction_key
+```
+
+#### Alternative: Database-native hash functions
+
+For database-specific projects, you can use native hash functions:
+
+```sql
+-- Snowflake
+sha2(account_id) as account_key
+sha2(transaction_id || transaction_line_id) as transaction_key
+
+-- Other databases
+md5(account_id) as account_key
+```
+
+#### Rules
+
+* Always include the natural key columns alongside the surrogate key
+* Use `coalesce()` or the macro's built-in null handling
+* Surrogate keys should be VARCHAR (hash output)
+
+### Joins
+
+* Use explicit `join` for inner joins, `left join` for outer
+* List the "left" table first (the one you're selecting from)
+* Always prefix columns with table alias when joining
+
+```sql
+from transactions as t
+left join accounts as a
+    on t.account_id = a.account_id
+left join departments as d
+    on t.department_id = d.department_id
+```
+
+### Case Statements
+
+```sql
+case
+    when account_type = 'asset' then 'Asset'
+    when account_type = 'liability' then 'Liability'
+    else 'Other'
+end as account_category
+```
+
+### Booleans
+
+* Use `is_` or `has_` prefix for boolean columns
+* Cast to boolean explicitly: `is_active::boolean as is_active`
+* Prefer booleans over Y/N flags
+
+## 5. Physical Modeling & Constraints
+
+Database constraints are critical for query optimization and data integrity. However, **database platforms differ significantly in how they enforce constraints**.
+
+### Constraint Enforcement by Database Type
+
+#### Databases That Enforce Constraints (Traditional RDBMS)
+
+**Examples:** PostgreSQL, MySQL, SQL Server, Oracle
+
+* **Primary Keys:** Enforced - prevents duplicate and NULL values
+* **Foreign Keys:** Enforced - prevents orphaned records, cascades deletes/updates
+* **Unique Constraints:** Enforced - prevents duplicate values
+* **NOT NULL:** Enforced - prevents NULL values
+
+**Implications:**
+
+* Data integrity is guaranteed at the database level
+* Invalid data insertion will fail with errors
+* Referential integrity is automatically maintained
+* dbt tests serve as **validation** but constraints provide **enforcement**
+
+#### Databases That Don't Enforce Constraints (Modern Cloud Platforms)
+
+**Examples:** Snowflake, BigQuery, Databricks (Delta Lake)
+
+* **Primary Keys:** Informational only - declared but not enforced (except NOT NULL)
+* **Foreign Keys:** Informational only - declared but not enforced
+* **Unique Constraints:** Informational only - declared but not enforced
+* **NOT NULL:** Enforced - this is the only constraint type that is enforced
+
+**Implications:**
+
+* Constraints are **metadata** for query optimization (e.g., Snowflake's Query Optimizer uses them for join elimination)
+* Data integrity must be enforced through **dbt tests**
+* Invalid data can be inserted without database-level errors
+* dbt tests serve as **both validation AND enforcement**
+
+### Why Declare Constraints Even If Not Enforced?
+
+1. **Documentation:** Constraints document the logical data model and relationships between tables
+
+2. **Tooling:** Data catalog tools, BI tools, and lineage tools read constraint metadata to understand relationships
+
+3. **Future-Proofing:** If migrating to a database that enforces constraints, they're already declared
+
+**Note:** Use dbt tests for referential integrity validation (see Section 8).
+
+### Constraint Declaration Requirements
+
+* **Declare All Constraints:** Always define `PRIMARY KEY`, `FOREIGN KEY`, and `UNIQUE` constraints where applicable for documentation purposes.
+* **Database-Specific Syntax:**
+  * **Snowflake:** Standard constraint syntax: `CONSTRAINT pk_customer PRIMARY KEY (customer_key)`
+  * **BigQuery:** Use `NOT ENFORCED`: `CONSTRAINT pk_customer PRIMARY KEY (customer_key) NOT ENFORCED`
+  * **PostgreSQL/MySQL/SQL Server:** Constraints are enforced automatically - no special syntax needed
+* **Constraint Naming:** Use explicit names:
+  * **PK:** `pk_<table_name>` (e.g., `pk_account`, `pk_fact_transactions`)
+  * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_transactions_has_dim_accounts`)
+  * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
+
+### Critical: dbt Tests Required for Constraint Enforcement
+
+**For databases that don't enforce constraints (Snowflake, BigQuery, Databricks), dbt tests are NOT optional - they are the primary mechanism for ensuring data integrity.**
+
+Every model must have comprehensive tests:
+
+* **Primary Keys:** `unique` + `not_null` tests
+* **Foreign Keys:** `relationships` tests to parent dimensions
+* **Unique/Alternate Keys:** `unique` tests
+* **Composite Keys:** `dbt_utils.unique_combination_of_columns` tests
+
+See Section 8 (Testing) for detailed test requirements and examples.
+
+### Data Types
+
+* Use appropriate data types for your database platform
+* For Snowflake: Use `VARCHAR` without length limits unless strict enforcement is needed
+* Use appropriate integer types for IDs
+* Use appropriate types for semi-structured data (e.g., `VARIANT` for Snowflake, `JSON` for PostgreSQL)
+
+## 6. Advanced Modeling Patterns
+
+### Slowly Changing Dimensions (SCD)
+
+* **Type 1 (Overwrite):** Use `MERGE` statements. Include a `diff_hash` column to compare records efficiently before updating.
+* **Type 2 (History):** Use appropriate change detection methods for your database platform:
+  * **Snowflake:** Use Snowflake Streams to detect changes
+  * **Other Databases:** Use window functions or change data capture (CDC) methods
+  * **Primary Key Generation:** Always use `{{ dbt_utils.generate_surrogate_key(['natural_key', 'last_updated_at']) }}` for surrogate keys. Use `last_updated_at` from source (not `dbt_valid_from` or creation date). Fact tables join using natural key + date range: `on f.natural_key = d.natural_key and f.transaction_date >= d.valid_from and (f.transaction_date < d.valid_to or d.valid_to is null)`. Multiple SCDs join independently using each natural key from the fact table.
+* **Type 3:** Store limited history in separate columns (rarely used)
+
+### Fact Tables
+
+* **Reverse Balance:** For transactional facts requiring updates (e.g., order modifications), use a **Reverse Balance** (Mirror Image) model. Insert a negating record for the old value and a positive record for the new value. This allows for easy aggregation `SUM()` without complex update logic.
+* **Recovering Deletions:** Use a "Forward-Leading" insertion method. If a record is physically deleted in the source, insert a logical deletion record in the next load to maintain history.
+
+## 7. dbt Model Configuration & Materialization
+
+* **Materialization by Layer:**
+  * **DL:** Views or Tables (based on source)
+  * **STG:** Source only (no materialization)
+  * **ODS:** Tables (always)
+  * **DW:** Tables (always)
+  * **BI:** Views or Tables (based on complexity)
+* **In-Model Configuration:** Use `{{ config() }}` block at the top of SQL files:
+
+  ```sql
+  {{
+    config(
+      materialized = 'table',
+      tags = ['sales', 'daily']
+    )
+  }}
+  ```
+
+* **Directory-Level Configuration:** Use `dbt_project.yml` for layer-wide defaults.
+* **Tags:** Apply tags at model level for build grouping (e.g., `tags: ['sales', 'daily']`).
+* **Dependencies:**
+  * `ods__` models may select from `sources`.
+  * `dw__` models must use `{{ ref('ods__*') }}`.
+  * `bi__` models must use `{{ ref('dw__*') }}`.
+  * Never skip layers (e.g., `bi__` models cannot reference `ods__` directly).
+
+### Incremental Models with Change Hash
+
+For incremental models, use a change hash pattern to detect modifications:
+
+```sql
+{{
+    config(
+        materialized = 'incremental',
+        unique_key = 'account_id'
+    )
+}}
+
+with
+
+source as (
+    select * from {{ ref('ods__netsuite__accounts') }}
+),
+
+transformed as (
+    select
+        {{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key,
+        account_id,
+        account_name,
+        account_type,
+        current_timestamp as dbt_refresh_date,
+        {{ dbt_utils.generate_surrogate_key(['account_name', 'account_type']) }} as chng_hash
+    from source
+)
+
+select * from transformed
+
+{% if is_incremental() %}
+where (account_id, chng_hash) not in (
+    select account_id, chng_hash from {{ this }}
+)
+{% endif %}
+```
+
+## 8. Testing
+
+### Required Tests
+
+Every model must have a `.yml` file with tests:
+
+* **Primary key**: `unique` + `not_null`
+* **Foreign keys**: `relationships` test to parent dimension
+* **Composite keys**: use `dbt_utils.unique_combination_of_columns`
+
+### YAML Structure
+
+```yaml
+version: 2
+
+models:
+  * name: dw__finance__dim_accounts
+    description: Account dimension for financial reporting
+    columns:
+      * name: account_key
+        description: Surrogate key (hash of account_id)
+        tests:
+          * unique
+          * not_null
+      * name: account_id
+        description: Natural key from NetSuite
+        tests:
+          * unique
+          * not_null
+
+  * name: dw__finance__fact_transactions
+    description: Transaction fact at line item grain
+    tests:
+      * dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            * transaction_id
+            * transaction_line_id
+    columns:
+      * name: account_key
+        tests:
+          * relationships:
+              to: ref('dw__finance__dim_accounts')
+              field: account_key
+```
+
+### YAML Style
+
+* 2-space indents
+* List items indented
+* 80 character line limit
+* New line between list items that are dictionaries
+
+## 9. Sources
+
+Define sources in `sources/` folder:
+
+```yaml
+version: 2
+
+sources:
+  * name: netsuite
+    database: stg_fivetran
+    schema: netsuite
+    tables:
+      * name: accounts
+      * name: transactions
+      * name: transaction_lines
+```
+
+## 10. Model Headers
+
+Include a header comment block with:
+
+```sql
+/*
+    Model: dw__finance__dim_accounts
+    Description: Account dimension for financial reporting
+    
+    Grain: One row per account
+    
+    Change Log:
+    * 2024-01-15 | jdoe | Initial creation
+    * 2024-02-01 | jsmith | Added account_category field
+*/
+```
+
+## 11. Snapshots & Soft Deletes
+
+* **Snapshots:**
+  * Use for Type 2 SCD tracking or audit history.
+  * Naming: `snap_<layer>__<entity>` (e.g., `snap_ods__customer`).
+  * **Override snapshot database/schema:** Configure snapshots to land in the same database/schema as the target table they're tracking. Use `database` and `schema` config in the snapshot file to override dbt defaults.
+  * Configure to end-date deleted records.
+  * Example snapshot config:
+
+    ```yaml
+    snapshots:
+      - name: snap_ods__customer
+        target_database: your_database
+        target_schema: ods
+        # ... snapshot strategy config
+    ```
+
+* **Soft Deletes:**
+  * Detect deleted records from source objects in ODS layer.
+  * **Deletion Detection Methods:**
+    * **Explicit Deletes:** Detect records with explicit delete flags or status indicators in source systems.
+    * **Missing from Incremental Loads:** If a record existed in a previous incremental load but does not appear in the current load, mark it as deleted (`is_deleted = true`).
+    * **Missing from Type 2 SCD/Snapshot Queries:** If a record was previously returned by the source query supporting a Type 2 SCD or snapshot but no longer appears in the query results, mark it as deleted.
+  * Apply `is_deleted` boolean flag (set to `true` for deleted records).
+  * Preserve deleted records in ODS and DW layers for historical analysis.
+  * **Important:** Always compare current load against previous state to detect records that have disappeared, not just those explicitly marked as deleted in source systems.
+
+## 12. Macros
+
+### Macro Organization
+
+```text
+macros/
+├── common/
+│   └── generate_unknown_record.sql
+└── config/
+    ├── generate_schema_name.sql
+    └── generate_database_name.sql
+```
+
+### Unknown Record Generation
+
+For dimensions, generate unknown records for FK integrity:
+
+```sql
+{% macro generate_unknown_record(id_key, id_column, id_value, timestamp_column) -%}
+
+insert into {{ this }}
+    ({{ id_key }}, {{ id_column }}, {{ timestamp_column }})
+values
+    ({{ dbt_utils.generate_surrogate_key([id_value]) }}, {{ id_value }}, current_timestamp)
+
+{% endmacro %}
+```
+
+Use via post-hook:
+
+```sql
+{{
+    config(
+        post_hook = '{{ generate_unknown_record("account_key", "account_id", 0, "dbt_refresh_date") if not is_incremental() }}',
+        materialized = 'incremental',
+        unique_key = 'account_id'
+    )
+}}
+```
+
+## 13. Jinja Style
+
+* Spaces inside delimiters: `{{ this }}` not `{{this}}`
+* Newlines to separate logical blocks
+* Use `-` for whitespace control when needed: `{%- if ... -%}`
+
+## 14. Packages
+
+Pin versions in `packages.yml`:
+
+```yaml
+packages:
+  * package: dbt-labs/dbt_utils
+    version: 1.1.0
+```
+
+## 15. Governance & Documentation
+
+* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform.
+* **Ownership Documentation:** Every model must include documentation indicating the business domain owner or purpose in YAML.
+* **Lineage Clarity:** Use explicit column aliases in the final `SELECT` list of any transformation to ensure lineage parsers can trace data flow, even if the name hasn't changed.
+
+## 16. Quality Gates (dbt)
+
+Cursor must nudge the developer to run these commands before marking dbt work complete:
+
+1. `dbt deps` — ensure macro/packages are up to date when new refs/macros are introduced.
+2. `dbt compile --select path:models/ods path:models/dw path:models/bi` — catch referencing or config issues in every layer.
+3. `dbt test --select path:models/ods path:models/dw path:models/bi` — enforce `unique`, `not_null`, relationship, and unit tests.
+4. `dbt run-operation <macro_name>` — whenever a macro is added/changed, run the macro (or its test macro) directly to verify Jinja errors are caught.
+
+If any command fails, work is considered incomplete until the failure is resolved or explicitly waived by a reviewer.
+
+## 17. Anti-Patterns
+
+| Don't | Do Instead |
+|-------|------------|
+| `SELECT *` in final output | Explicitly list all columns |
+| Hardcode table names | Use `ref()` and `source()` |
+| Business logic in ODS | Keep ODS light, logic in DW |
+| Skip the `final` CTE | Always end with `select * from final` |
+| UPPERCASE column names | Use lowercase for all output |
+| Nest subqueries | Use CTEs with descriptive names |
+| Mix natural and surrogate keys as FK | Use surrogate keys consistently |
+| Skip layers | Always follow DL → STG → ODS → DW → BI flow |

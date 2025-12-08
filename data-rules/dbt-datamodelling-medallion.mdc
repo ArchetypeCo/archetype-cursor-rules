@@ -1,0 +1,801 @@
+---
+alwaysApply: false
+---
+
+# Data Modeling & Medallion Architecture Rules
+
+**Owner:** Data Engineering Lead
+
+You are an expert Data Architect and database specialist. You strictly adhere to the principles of Dimensional Modeling (Kimball) within a Medallion Architecture. Your goal is to create robust, scalable, and cost-effective data models while enforcing strict governance to prevent technical debt.
+
+## 1. Naming Standards & Conventions
+
+Adhere to strict naming conventions to ensure consistency and maximize database caching capabilities.
+
+* **Case Sensitivity:** Use **unquoted snake_case** for all object names (databases, schemas, tables, columns). Consistent usage maximizes query performance and caching.
+  * *Bad:* `CustomerTable`, `"CustomerTable"`, `CUSTOMER_TABLE`
+  * *Good:* `customer_table`
+* **Table Naming by Layer:**
+  * **Raw Layer:** Use **singular nouns** matching source system names. If source names are cryptic (e.g., `F0911`), create views with descriptive names.
+    * *Examples:* `customer`, `sales_order`, `account`
+  * **Integration Layer:** Use **singular nouns** with business terminology. These represent normalized entities (one-row-per-entity). This satisfies the decision: **single-entity layers stay singular; aggregated/business layers go plural.**
+    * *Examples:* `customer`, `product`, `sales_order`
+  * **Analytics Layer:** Use **plural nouns** for dimensional model objects. Facts and dimensions follow star schema patterns.
+    * **Facts:** `fact_<business_concept>` (e.g., `fact_orders`, `fact_sales`, `fact_transactions`)
+    * **Dimensions:** `dim_<entity>` (e.g., `dim_customers`, `dim_products`, `dim_dates`)
+    * **Lookup Tables:** Are dimensions and use `dim_` prefix (e.g., `dim_status_codes`, `dim_regions`, `dim_product_categories`). There is no separate "lookup" category in Kimball methodology.
+    * *Bad:* `customer`, `sales_order`, `lookup_status_codes`
+    * *Good:* `dim_customers`, `fact_orders`, `dim_status_codes`
+* **dbt Model Naming Patterns:**
+  * **Raw Layer:** `raw_<party>__<source_system>__<table_name>` (e.g., `raw_acme__salesforce__account`)
+    * Party may be omitted for internal systems: `raw_salesforce__account`
+    * Use double underscore `__` to delimit party/system/table segments
+  * **Integration Layer:** `int_<party>__<source_system>__<entity>` (e.g., `int_acme__salesforce__customer`)
+    * Or subject-area based: `int_<subject_area>__<entity>` (e.g., `int_sales__customer`)
+  * **Analytics Layer:** `anl_<subject_area>__<fact|dim>_<name>` (e.g., `anl_sales__fact_orders`, `anl_sales__dim_customers`)
+    * Subject area may be omitted for enterprise-wide models: `anl__dim_dates`
+* **Primary Key Columns:** Define the primary key column as `<singular_table_name>_key` using a deterministic hash of the natural key fields stored as `varchar`. Use `dbt_utils.generate_surrogate_key()` for database-agnostic compatibility, or database-native hash functions (e.g., `sha2()` for Snowflake). This `_key` convention applies to **every layer** (raw, integration, analytics).
+  * *Example:* `customer_key` = `{{ dbt_utils.generate_surrogate_key(['source_customer_id', 'source_system_id']) }}`
+  * Always include natural key columns alongside the surrogate key for traceability.
+  * **Name Collision Exception:** If a source system already contains `<entity>_key`, name the surrogate `<entity>_pk` to avoid ambiguity while maintaining `_key` parity elsewhere.
+* **Foreign Key Columns:** Use the exact name of the referenced primary key column (usually `<entity>_key`) to facilitate natural joins. Only deviate when the upstream PK used `_pk` per the collision rule.
+  * *Example:* If `dim_customers` has `customer_key`, then `fact_orders` must also use `customer_key` (not `customer_id` or `cust_key`).
+* **Column Naming Patterns:**
+  * **Timestamps:** Use `<event>_at` in UTC (e.g., `created_at`, `updated_at`). If a different timezone is required, suffix with the zone (`processed_at_pt`). Events must use past-tense verbs.
+  * **Dates:** Use `<event>_date` (e.g., `start_date`, `closed_date`).
+  * **Booleans:** Prefix with `is_` or `has_` (e.g., `is_active`, `is_deleted`, `has_permission`).
+  * **Currency:** Use decimal format (e.g., `19.99`). If stored as cents, suffix with `_in_cents` (e.g., `price_in_cents`).
+  * **Lookup Tables:** Follow pattern `<object>_key`, `<object>_code` or `<object>_name`, `<object>_description`.
+  * **Field Ordering:** Follow dbt Labs ordering for readability: **identifiers/keys → strings → numerics → booleans → dates → timestamps → audit/meta columns**.
+  * **Constraint Naming:** Explicitly name your constraints to preserve logical context in the physical model:
+  * **PK:** `pk_<table_name>` (e.g., `pk_customer`, `pk_fact_orders`)
+  * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_orders_placed_by_dim_customers`)
+  * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
+* **No Object Suffixes:** Do **not** use suffixes to denote object types (e.g., `_v`, `_t`, `_mv`). The underlying object type may change (e.g., View to Dynamic Table) without breaking downstream dependencies.
+* **Avoid Abbreviations:** Use full descriptive names unless the abbreviation is universally standard (e.g., `usd`, `id`). Ambiguity leads to confusion (e.g., does `cust_ref` mean reference, refund, or refrigeration?).
+
+## 2. Architectural Layers (Medallion)
+
+Organize the database into three logical layers representing the data lifecycle: **raw**, **int**, and **anl**.
+
+### 2.1 Raw Layer
+
+* **Purpose:** Load data as-is from source systems with minimal transformation
+* **Materialization:** Tables (for ELT tools) or Views (for cloud storage ingestion)
+* **Naming:** `raw_<party>__<source_system>__<table_name>`
+* **Best Practices:**
+  * Preserve source system structure and naming conventions
+  * Add metadata columns: `__load_id`, `__load_dts`, `__source_filename`
+  * Use Tables for ELT tools (Fivetran, Stitch) - they handle materialization
+  * Use Views for cloud storage ingestion (S3, GCS, Azure Blob) - transform on-read
+  * Document materialization choice and rationale
+  * Implement basic data type validation
+  * Capture data quality metrics (record counts, null percentages)
+  * Log ingestion errors and failures
+  * Always use dbt `sources` for external data
+  * Document source system details in `sources.yml`
+  * Track data freshness and SLAs
+
+### 2.2 Integration Layer
+
+* **Purpose:** Data cleansing, conforming, deduplication, and business rule application
+* **Materialization:** Views (default) or Tables (if performance requires)
+* **Naming:** `int_<party>__<source_system>__<entity>` or `int_<subject_area>__<entity>`
+* **Best Practices:**
+  * Default to Views for cost optimization
+  * Convert to Tables only when:
+    * Query performance degrades significantly
+    * Downstream models have complex dependencies
+    * Data is accessed frequently by multiple consumers
+  * Implement data cleansing and standardization
+  * Apply business rules and transformations
+  * Handle deduplication and data quality issues
+  * Create one-row-per-entity structures
+  * Normalize data to 3NF where appropriate
+  * Prepare data for dimensional modeling
+  * Always detect and flag deleted records with `is_deleted` boolean
+  * Preserve deleted records for historical analysis
+  * Generate deterministic surrogate keys using hash functions
+  * Always include natural keys alongside surrogates
+  * Use consistent naming: `<entity>_key`
+  * Use business terminology, not source system names
+  * Must use `{{ ref() }}` to reference `raw` layer models
+
+### 2.3 Analytics Layer
+
+* **Purpose:** Dimensional models following Kimball star schema methodology
+* **Materialization:** Tables (always) for marts to ensure performance
+* **Naming:** `anl_<subject_area>__<fact|dim>_<name>`
+* **Best Practices:**
+  * Always use Tables - never use Views in Analytics layer
+  * Follow Kimball star schema methodology
+  * Separate Facts (measures) from Dimensions (descriptors)
+  * Use conformed dimensions for enterprise consistency
+  * Facts: Immutable, verb-based metrics (e.g., `fact_orders`, `fact_sales`)
+  * Dimensions: Mutable, noun-based entities (e.g., `dim_customers`, `dim_products`, `dim_dates`)
+  * Denormalized for query performance and business user simplicity
+  * Must use `{{ ref() }}` to reference `int` layer models
+  * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly)
+  * See section 2.3.1 below for detailed business-friendly naming guidelines
+
+### 2.3.1 Analytics Layer: Business-Friendly Naming Standards
+
+The analytics layer is designed for **business users** and must use **business terminology** rather than technical or source system names. This ensures self-service analytics and reduces the need for translation layers.
+
+#### Table/Model Naming Principles
+
+* **Use Business Domain Language:** Names should reflect how the business talks about data, not how systems store it.
+  * *Bad (technical):* `anl_sales__fact_sfdc_opp`, `anl_sales__dim_sf_account`
+  * *Good (business):* `anl_sales__fact_opportunities`, `anl_sales__dim_accounts`
+* **Avoid Source System References:** Do not include source system names or abbreviations in table names.
+  * *Bad:* `fact_salesforce_orders`, `dim_sap_customers`
+  * *Good:* `fact_orders`, `dim_customers`
+* **Use Plural Nouns:** Analytics layer tables are plural to represent collections (aligns with dimensional modeling).
+  * *Bad:* `fact_order`, `dim_customer`
+  * *Good:* `fact_orders`, `dim_customers`
+* **Fact Table Naming:** Use verb-based business concepts that describe measurable events.
+  * *Examples:* `fact_orders`, `fact_sales`, `fact_transactions`, `fact_shipments`, `fact_returns`
+  * *Bad:* `fact_order_data`, `fact_sales_table`, `fact_txn`
+* **Dimension Table Naming:** Use noun-based business entities that describe "who, what, where, when."
+  * *Examples:* `dim_customers`, `dim_products`, `dim_locations`, `dim_dates`, `dim_employees`
+  * *Bad:* `dim_cust`, `dim_prod_master`, `dim_loc_data`
+
+#### Column Naming Principles
+
+* **Use Business-Friendly Column Names:** Translate technical column names to business terminology.
+  * *Bad (technical):* `sfdc_account_id`, `sap_customer_num`, `src_sys_cd`
+  * *Good (business):* `account_id`, `customer_number`, `source_system_code`
+* **Avoid Technical Prefixes/Suffixes:** Remove technical metadata from column names visible to business users.
+  * *Bad:* `__load_id`, `_stg`, `_raw`, `_technical_flag`
+  * *Good:* Use technical columns only if necessary, and document them separately
+* **Use Domain-Specific Terminology:** Column names should match business glossary and data dictionary.
+  * *Examples:*
+    * Finance: `revenue`, `cost_of_goods_sold`, `gross_margin` (not `rev`, `cogs`, `gm`)
+    * Sales: `opportunity_amount`, `close_date`, `stage_name` (not `opp_amt`, `clsd_dt`, `stg`)
+    * HR: `employee_name`, `hire_date`, `department_name` (not `emp_nm`, `hr_dt`, `dept`)
+* **Preserve Business Context:** Include business meaning in column names when helpful.
+  * *Bad:* `status`, `type`, `code` (too generic)
+  * *Good:* `order_status`, `product_type`, `region_code`
+* **Use Descriptive Names:** Column names should be self-documenting for business users.
+  * *Bad:* `amt`, `dt`, `nm`, `desc`
+  * *Good:* `order_amount`, `order_date`, `customer_name`, `product_description`
+* **Standardize Common Business Terms:** Use consistent naming across all analytics models.
+  * *Examples:*
+    * Always use `customer_id` (not `customer_number`, `cust_id`, `client_id`)
+    * Always use `order_date` (not `order_dt`, `ord_date`, `date_ordered`)
+    * Always use `revenue` (not `rev`, `sales_amount`, `income`)
+
+#### Column Naming Examples by Domain
+
+**Sales Domain:**
+
+* *Bad:* `sfdc_opp_id`, `opp_amt`, `clsd_dt`, `stg_nm`
+* *Good:* `opportunity_id`, `opportunity_amount`, `close_date`, `stage_name`
+
+**Finance Domain:**
+
+* *Bad:* `acct_num`, `rev_amt`, `cogs`, `gm_pct`
+* *Good:* `account_number`, `revenue_amount`, `cost_of_goods_sold`, `gross_margin_percent`
+
+**Customer Domain:**
+
+* *Bad:* `cust_id`, `cust_nm`, `cust_email_addr`, `cust_phn`
+* *Good:* `customer_id`, `customer_name`, `customer_email_address`, `customer_phone_number`
+
+**Product Domain:**
+
+* *Bad:* `prod_sku`, `prod_nm`, `prod_cat`, `prod_desc`
+* *Good:* `product_sku`, `product_name`, `product_category`, `product_description`
+
+#### Business-Friendly Naming Checklist
+
+Before finalizing analytics layer models, verify:
+
+* [ ] Table names use business terminology (not source system names)
+* [ ] Column names are self-documenting for business users
+* [ ] No technical abbreviations or jargon
+* [ ] Names align with business glossary/data dictionary
+* [ ] Consistent naming across related models
+* [ ] Fact tables use verb-based business concepts
+* [ ] Dimension tables use noun-based business entities
+* [ ] Column names preserve business context (e.g., `order_status` not `status`)
+
+#### Mapping Technical to Business-Friendly Names
+
+When transforming from integration layer to analytics layer:
+
+1. **Remove source system prefixes:** `sfdc_account_id` → `account_id`
+2. **Expand abbreviations:** `cust_nm` → `customer_name`
+3. **Add business context:** `status` → `order_status`
+4. **Use full words:** `amt` → `amount`, `dt` → `date`
+5. **Apply domain terminology:** `rev` → `revenue` (finance), `opp_amt` → `opportunity_amount` (sales)
+6. **Standardize across models:** Ensure `customer_id` is consistent everywhere
+
+#### Documentation Requirements
+
+* **Business Glossary:** Maintain a business glossary mapping technical names to business-friendly names.
+* **Column Descriptions:** Every analytics layer column must have a business-friendly description in YAML.
+* **Business Owner:** Document the business domain owner for each analytics model.
+* **Usage Examples:** Provide example queries showing business-friendly column usage.
+
+## 3. Folder Structure
+
+```text
+models/
+├── sources/
+│   └── <source>/
+│       └── sources__<source>.yml
+├── raw/
+│   └── <source>/
+│       └── raw_<party>__<source>__<table>.sql
+├── int/
+│   └── <source_or_subject>/
+│       └── int_<party>__<source>__<entity>.sql
+└── anl/
+    └── <subject_area>/
+        ├── anl_<subject>__fact_<name>.sql
+        ├── anl_<subject>__dim_<name>.sql
+        └── anl_<subject>.yml
+```
+
+## 4. SQL Style
+
+### General Rules
+
+* **Lowercase everything**: field names, function names, aliases, keywords
+* **Trailing commas**: always use trailing commas for compatibility
+* **4-space indents**: except predicates which align with `where`
+* **80 character line limit**: break long lines
+* **Always use `as`**: when aliasing fields or tables
+* **Table aliases required**: when joining two or more tables
+
+### Column Output — Always Lowercase
+
+```sql
+-- CORRECT
+select
+    account_id,
+    account_name,
+    is_active
+
+-- WRONG
+select
+    ACCOUNT_ID,
+    ACCOUNT_NAME,
+    IS_ACTIVE
+```
+
+### CTE Structure
+
+All models should use CTEs. Place all `ref()` and `source()` statements at the top:
+
+```sql
+with
+
+source_accounts as (
+    select * from {{ source('netsuite', 'accounts') }}
+),
+
+int_customers as (
+    select * from {{ ref('int_sales__customer') }}
+),
+
+-- business logic CTEs here
+filtered as (
+    select
+        account_id,
+        account_name,
+        is_active
+    from source_accounts
+    where is_deleted = false
+),
+
+final as (
+    select
+        account_id,
+        account_name,
+        is_active,
+        current_timestamp as dbt_refresh_date
+    from filtered
+)
+
+select * from final
+```
+
+### Field Ordering
+
+Order fields following dbt Labs standard:
+
+1. **Identifiers/keys** — primary keys, foreign keys, natural keys
+2. **Strings** — text columns
+3. **Numerics** — numeric columns
+4. **Booleans** — boolean flags
+5. **Dates** — date columns
+6. **Timestamps** — timestamp columns
+7. **Audit/metadata columns** — dbt_refresh_date, chng_hash, etc.
+
+#### Dimension Example
+
+```sql
+select
+    /* primary key */
+    {{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key,
+    
+    /* natural key */
+    account_id,
+    
+    /* foreign keys */
+    {{ dbt_utils.generate_surrogate_key(['parent_id']) }} as parent_account_key,
+    
+    /* attributes - strings */
+    account_name,
+    account_type,
+    
+    /* booleans */
+    is_active,
+    
+    /* dates */
+    created_date,
+    
+    /* timestamps */
+    created_at,
+    updated_at,
+    
+    /* audit */
+    current_timestamp as dbt_refresh_date
+```
+
+#### Fact Example
+
+```sql
+select
+    /* primary key */
+    {{ dbt_utils.generate_surrogate_key(['order_id', 'line_item_id']) }} as order_line_key,
+    
+    /* natural keys */
+    order_id,
+    line_item_id,
+    
+    /* foreign keys */
+    {{ dbt_utils.generate_surrogate_key(['customer_id']) }} as customer_key,
+    {{ dbt_utils.generate_surrogate_key(['product_id']) }} as product_key,
+    
+    /* measures - numerics */
+    quantity,
+    unit_price,
+    total_amount,
+    
+    /* dates */
+    order_date,
+    
+    /* timestamps */
+    created_at,
+    
+    /* audit */
+    current_timestamp as dbt_refresh_date
+```
+
+### Surrogate Keys
+
+Generate surrogate keys by hashing natural key columns. Name surrogate keys as `<object>_key`.
+
+#### Preferred: dbt_utils.generate_surrogate_key()
+
+Use `dbt_utils.generate_surrogate_key()` — it's database-agnostic, handles nulls consistently, and is maintained by dbt Labs:
+
+```sql
+-- single column key
+{{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key
+
+-- composite key
+{{ dbt_utils.generate_surrogate_key(['transaction_id', 'transaction_line_id']) }} as transaction_key
+```
+
+#### Alternative: Database-native hash functions
+
+For database-specific projects, you can use native hash functions:
+
+```sql
+-- Snowflake
+sha2(account_id) as account_key
+sha2(transaction_id || transaction_line_id) as transaction_key
+
+-- Other databases
+md5(account_id) as account_key
+```
+
+#### Rules
+
+* Always include the natural key columns alongside the surrogate key
+* Use `coalesce()` or the macro's built-in null handling
+* Surrogate keys should be VARCHAR (hash output)
+
+### Joins
+
+* Use explicit `join` for inner joins, `left join` for outer
+* List the "left" table first (the one you're selecting from)
+* Always prefix columns with table alias when joining
+
+```sql
+from fact_orders as f
+left join dim_customers as c
+    on f.customer_key = c.customer_key
+left join dim_products as p
+    on f.product_key = p.product_key
+```
+
+### Case Statements
+
+```sql
+case
+    when account_type = 'asset' then 'Asset'
+    when account_type = 'liability' then 'Liability'
+    else 'Other'
+end as account_category
+```
+
+### Booleans
+
+* Use `is_` or `has_` prefix for boolean columns
+* Cast to boolean explicitly: `is_active::boolean as is_active`
+* Prefer booleans over Y/N flags
+
+## 5. Physical Modeling & Constraints
+
+Database constraints are critical for query optimization and data integrity. However, **database platforms differ significantly in how they enforce constraints**.
+
+### Constraint Enforcement by Database Type
+
+#### Databases That Enforce Constraints (Traditional RDBMS)
+
+**Examples:** PostgreSQL, MySQL, SQL Server, Oracle
+
+* **Primary Keys:** Enforced - prevents duplicate and NULL values
+* **Foreign Keys:** Enforced - prevents orphaned records, cascades deletes/updates
+* **Unique Constraints:** Enforced - prevents duplicate values
+* **NOT NULL:** Enforced - prevents NULL values
+
+**Implications:**
+
+* Data integrity is guaranteed at the database level
+* Invalid data insertion will fail with errors
+* Referential integrity is automatically maintained
+* dbt tests serve as **validation** but constraints provide **enforcement**
+
+#### Databases That Don't Enforce Constraints (Modern Cloud Platforms)
+
+**Examples:** Snowflake, BigQuery, Databricks (Delta Lake)
+
+* **Primary Keys:** Informational only - declared but not enforced (except NOT NULL)
+* **Foreign Keys:** Informational only - declared but not enforced
+* **Unique Constraints:** Informational only - declared but not enforced
+* **NOT NULL:** Enforced - this is the only constraint type that is enforced
+
+**Implications:**
+
+* Constraints are **metadata** for query optimization (e.g., Snowflake's Query Optimizer uses them for join elimination)
+* Data integrity must be enforced through **dbt tests**
+* Invalid data can be inserted without database-level errors
+* dbt tests serve as **both validation AND enforcement**
+
+### Why Declare Constraints Even If Not Enforced?
+
+1. **Documentation:** Constraints document the logical data model and relationships between tables
+
+2. **Tooling:** Data catalog tools, BI tools, and lineage tools read constraint metadata to understand relationships
+
+3. **Future-Proofing:** If migrating to a database that enforces constraints, they're already declared
+
+**Note:** Use dbt tests for referential integrity validation (see Section 8).
+
+### Constraint Declaration Requirements
+
+* **Declare All Constraints:** Always define `PRIMARY KEY`, `FOREIGN KEY`, and `UNIQUE` constraints where applicable for documentation purposes.
+* **Database-Specific Syntax:**
+  * **Snowflake:** Standard constraint syntax: `CONSTRAINT pk_customer PRIMARY KEY (customer_key)`
+  * **BigQuery:** Use `NOT ENFORCED`: `CONSTRAINT pk_customer PRIMARY KEY (customer_key) NOT ENFORCED`
+  * **PostgreSQL/MySQL/SQL Server:** Constraints are enforced automatically - no special syntax needed
+* **Constraint Naming:** Use explicit names:
+  * **PK:** `pk_<table_name>` (e.g., `pk_customer`, `pk_fact_orders`)
+  * **FK:** `fk_<child_table>_<relationship_verb>_<parent_table>` (e.g., `fk_fact_orders_placed_by_dim_customers`)
+  * **Unique/Alternate Key:** `ak_<table_name>_<column_name>`
+
+### Critical: dbt Tests Required for Constraint Enforcement
+
+**For databases that don't enforce constraints (Snowflake, BigQuery, Databricks), dbt tests are NOT optional - they are the primary mechanism for ensuring data integrity.**
+
+Every model must have comprehensive tests:
+
+* **Primary Keys:** `unique` + `not_null` tests
+* **Foreign Keys:** `relationships` tests to parent dimensions
+* **Unique/Alternate Keys:** `unique` tests
+* **Composite Keys:** `dbt_utils.unique_combination_of_columns` tests
+
+See Section 8 (Testing) for detailed test requirements and examples.
+
+### Data Types
+
+* Use appropriate data types for your database platform
+* For Snowflake: Use `VARCHAR` without length limits unless strict enforcement is needed
+* Use appropriate integer types for IDs
+* Use appropriate types for semi-structured data (e.g., `VARIANT` for Snowflake, `JSON` for PostgreSQL)
+
+## 6. Advanced Modeling Patterns
+
+### Slowly Changing Dimensions (SCD)
+
+* **Type 1 (Overwrite):** Use `MERGE` statements. Include a `diff_hash` column to compare records efficiently before updating.
+* **Type 2 (History):** Use appropriate change detection methods for your database platform:
+  * **Snowflake:** Use Snowflake Streams to detect changes. Insert the "before" image from the stream into the Type 2 table to avoid expensive lookups and window functions. This can be up to 40% faster than traditional methods.
+  * **Other Databases:** Use window functions or change data capture (CDC) methods
+  * **Primary Key Generation:** Always use `{{ dbt_utils.generate_surrogate_key(['natural_key', 'last_updated_at']) }}` for surrogate keys. Use `last_updated_at` from source (not `dbt_valid_from` or creation date). Fact tables join using natural key + date range: `on f.natural_key = d.natural_key and f.transaction_date >= d.valid_from and (f.transaction_date < d.valid_to or d.valid_to is null)`. Multiple SCDs join independently using each natural key from the fact table.
+* **Dynamic Tables:** For Snowflake, use declarative Dynamic Tables for Type 2 dimensions if code simplicity is preferred over raw performance. Note that this uses window functions and may be more resource-intensive.
+
+### Fact Tables
+
+* **Reverse Balance:** For transactional facts requiring updates (e.g., order modifications), use a **Reverse Balance** (Mirror Image) model. Insert a negating record for the old value and a positive record for the new value. This allows for easy aggregation `SUM()` without complex update logic.
+* **Recovering Deletions:** Use a "Forward-Leading" insertion method. If a record is physically deleted in the source, insert a logical deletion record in the next load to maintain history.
+
+## 7. dbt Model Configuration & Materialization
+
+* **Materialization by Layer:**
+  * **Raw:** Tables (for ELT tools) or Views (for file ingestion)
+  * **Integration:** Views (default), Tables (if performance requires)
+  * **Analytics:** Tables (always) for marts
+* **In-Model Configuration:** Use `{{ config() }}` block at the top of SQL files:
+
+  ```sql
+  {{
+    config(
+      materialized = 'table',
+      tags = ['sales', 'daily']
+    )
+  }}
+  ```
+
+* **Directory-Level Configuration:** Use `dbt_project.yml` for layer-wide defaults.
+* **Tags:** Apply tags at model level for build grouping (e.g., `tags: ['sales', 'daily']`).
+* **Dependencies:**
+  * `raw_` models may select from `sources`.
+  * `int_` models must use `{{ ref('raw_*') }}`.
+  * `anl_` models must use `{{ ref('int_*') }}`.
+  * Never skip layers (e.g., `anl_` models cannot reference `raw_` directly).
+
+### Incremental Models with Change Hash
+
+For incremental models, use a change hash pattern to detect modifications:
+
+```sql
+{{
+    config(
+        materialized = 'incremental',
+        unique_key = 'account_id'
+    )
+}}
+
+with
+
+source as (
+    select * from {{ ref('int_sales__customer') }}
+),
+
+transformed as (
+    select
+        {{ dbt_utils.generate_surrogate_key(['account_id']) }} as account_key,
+        account_id,
+        account_name,
+        account_type,
+        current_timestamp as dbt_refresh_date,
+        {{ dbt_utils.generate_surrogate_key(['account_name', 'account_type']) }} as chng_hash
+    from source
+)
+
+select * from transformed
+
+{% if is_incremental() %}
+where (account_id, chng_hash) not in (
+    select account_id, chng_hash from {{ this }}
+)
+{% endif %}
+```
+
+## 8. Testing
+
+### Required Tests
+
+Every model must have a `.yml` file with tests:
+
+* **Primary key**: `unique` + `not_null`
+* **Foreign keys**: `relationships` test to parent dimension
+* **Composite keys**: use `dbt_utils.unique_combination_of_columns`
+
+### YAML Structure
+
+```yaml
+version: 2
+
+models:
+  * name: anl_sales__dim_customers
+    description: Customer dimension for sales reporting
+    columns:
+      * name: customer_key
+        description: Surrogate key (hash of customer_id)
+        tests:
+          * unique
+          * not_null
+      * name: customer_id
+        description: Natural key from source system
+        tests:
+          * unique
+          * not_null
+
+  * name: anl_sales__fact_orders
+    description: Order fact at line item grain
+    tests:
+      * dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            * order_id
+            * line_item_id
+    columns:
+      * name: customer_key
+        tests:
+          * relationships:
+              to: ref('anl_sales__dim_customers')
+              field: customer_key
+```
+
+### YAML Style
+
+* 2-space indents
+* List items indented
+* 80 character line limit
+* New line between list items that are dictionaries
+
+## 9. Sources
+
+Define sources in `sources/` folder:
+
+```yaml
+version: 2
+
+sources:
+  * name: netsuite
+    database: raw
+    schema: netsuite
+    tables:
+      * name: accounts
+      * name: transactions
+      * name: transaction_lines
+```
+
+## 10. Model Headers
+
+Include a header comment block with:
+
+```sql
+/*
+    Model: anl_sales__fact_orders
+    Description: Order fact table for sales reporting
+    
+    Grain: One row per order line item
+    
+    Change Log:
+    * 2024-01-15 | jdoe | Initial creation
+    * 2024-02-01 | jsmith | Added discount_amount field
+*/
+```
+
+## 11. Snapshots & Soft Deletes
+
+* **Snapshots:**
+  * Use for Type 2 SCD tracking or audit history.
+  * Naming: `snap_<layer>__<entity>` (e.g., `snap_int__customer`).
+  * **Override snapshot database/schema:** Configure snapshots to land in the same database/schema as the target table they're tracking. Use `database` and `schema` config in the snapshot file to override dbt defaults.
+  * Configure to end-date deleted records.
+  * Example snapshot config:
+
+    ```yaml
+    snapshots:
+      - name: snap_int__customer
+        target_database: your_database
+        target_schema: int
+        # ... snapshot strategy config
+    ```
+
+* **Soft Deletes:**
+  * Detect deleted records from source objects in `int` layer.
+  * **Deletion Detection Methods:**
+    * **Explicit Deletes:** Detect records with explicit delete flags or status indicators in source systems.
+    * **Missing from Incremental Loads:** If a record existed in a previous incremental load but does not appear in the current load, mark it as deleted (`is_deleted = true`).
+    * **Missing from Type 2 SCD/Snapshot Queries:** If a record was previously returned by the source query supporting a Type 2 SCD or snapshot but no longer appears in the query results, mark it as deleted.
+  * Apply `is_deleted` boolean flag (set to `true` for deleted records).
+  * Preserve deleted records in `int` and `anl` layers for historical analysis.
+  * **Important:** Always compare current load against previous state to detect records that have disappeared, not just those explicitly marked as deleted in source systems.
+
+## 12. Macros
+
+### Macro Organization
+
+```text
+macros/
+├── common/
+│   └── generate_unknown_record.sql
+└── config/
+    ├── generate_schema_name.sql
+    └── generate_database_name.sql
+```
+
+### Unknown Record Generation
+
+For dimensions, generate unknown records for FK integrity:
+
+```sql
+{% macro generate_unknown_record(id_key, id_column, id_value, timestamp_column) -%}
+
+insert into {{ this }}
+    ({{ id_key }}, {{ id_column }}, {{ timestamp_column }})
+values
+    ({{ dbt_utils.generate_surrogate_key([id_value]) }}, {{ id_value }}, current_timestamp)
+
+{% endmacro %}
+```
+
+Use via post-hook:
+
+```sql
+{{
+    config(
+        post_hook = '{{ generate_unknown_record("account_key", "account_id", 0, "dbt_refresh_date") if not is_incremental() }}',
+        materialized = 'incremental',
+        unique_key = 'account_id'
+    )
+}}
+```
+
+## 13. Jinja Style
+
+* Spaces inside delimiters: `{{ this }}` not `{{this}}`
+* Newlines to separate logical blocks
+* Use `-` for whitespace control when needed: `{%- if ... -%}`
+
+## 14. Packages
+
+Pin versions in `packages.yml`:
+
+```yaml
+packages:
+  * package: dbt-labs/dbt_utils
+    version: 1.1.0
+```
+
+## 15. Governance & Documentation
+
+* **Tagging Strategy:** When creating tables containing sensitive data (PII), always suggest applying appropriate tags or metadata for your database platform.
+* **Ownership Documentation:** Every model must include documentation indicating the business domain owner or purpose in YAML.
+* **Lineage Clarity:** Use explicit column aliases in the final `SELECT` list of any transformation to ensure lineage parsers can trace data flow, even if the name hasn't changed.
+
+## 16. Quality Gates (dbt)
+
+Cursor must nudge the developer to run these commands before marking dbt work complete:
+
+1. `dbt deps` — ensure macro/packages are up to date when new refs/macros are introduced.
+2. `dbt compile --select path:models/raw path:models/int path:models/anl` — catch referencing or config issues in every layer.
+3. `dbt test --select path:models/raw path:models/int path:models/anl` — enforce `unique`, `not_null`, relationship, and unit tests.
+4. `dbt run-operation <macro_name>` — whenever a macro is added/changed, run the macro (or its test macro) directly to verify Jinja errors are caught.
+
+If any command fails, work is considered incomplete until the failure is resolved or explicitly waived by a reviewer.
+
+## 17. Anti-Patterns
+
+| Don't | Do Instead |
+|-------|------------|
+| `SELECT *` in final output | Explicitly list all columns |
+| Hardcode table names | Use `ref()` and `source()` |
+| Business logic in Integration layer | Keep Integration light, logic in Analytics |
+| Skip the `final` CTE | Always end with `select * from final` |
+| UPPERCASE column names | Use lowercase for all output |
+| Nest subqueries | Use CTEs with descriptive names |
+| Mix natural and surrogate keys as FK | Use surrogate keys consistently |
+| Skip layers | Always follow raw → int → anl flow |
+| Use Views in Analytics layer | Always use Tables in Analytics layer |
+| Include source system names in Analytics | Use business-friendly names only |
