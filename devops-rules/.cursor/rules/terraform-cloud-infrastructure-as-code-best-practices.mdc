@@ -1,8 +1,7 @@
 ---
-description: Terraform and Infrastructure as Code (IaC) Best Practices for AWS and Azure
 globs: **/*.tf, **/*.tfvars, **/*.hcl
+alwaysApply: true
 ---
-
 # Terraform & IaC Best Practices
 
 **Owner:** Cloud Platform Lead
